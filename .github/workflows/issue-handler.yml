@@ -1,4 +1,6 @@
 name: Close Non-Bug Issues
+permissions:
+  issues: write
 
 on:
   workflow_dispatch:
