@@ -1,5 +1,8 @@
 name: ci
 
+permissions:
+  contents: read
+
 on:
   push:
     branches:
@@ -9,6 +12,8 @@ on:
 
 jobs:
   bump-version-and-create-release-tag:
+    permissions:
+      contents: write
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ secrets.PAT_TOKEN }}
