@@ -1,7 +1,8 @@
 name: develop-ci
+permissions:
+  contents: read
 
 on:
-  push:
     branches:
       - develop
     paths-ignore:
