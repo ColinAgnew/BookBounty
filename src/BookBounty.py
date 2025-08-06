@@ -9,6 +9,7 @@ import threading
 import concurrent.futures
 import iso639
 import requests
+from src.aaclient import aaclient
 from flask import Flask, render_template
 from flask_socketio import SocketIO
 from bs4 import BeautifulSoup
@@ -46,6 +47,8 @@ class DataHandler:
         self.clients_connected_counter = 0
         self.config_folder = "config"
         self.download_folder = "downloads"
+        self.aa_client_type = ""
+        self.aaclient = None
 
         if not os.path.exists(self.config_folder):
             os.makedirs(self.config_folder)
@@ -97,6 +100,7 @@ class DataHandler:
         self.preferred_extensions_fiction = preferred_extensions_fiction.split(",") if preferred_extensions_fiction else ""
         preferred_extensions_non_fiction = os.environ.get("preferred_extensions_non_fiction", "")
         self.preferred_extensions_non_fiction = preferred_extensions_non_fiction.split(",") if preferred_extensions_non_fiction else ""
+        self.aa_client_type = os.environ.get("aa_client_type", "")
 
         # Load variables from the configuration file if not set by environmental variables.
         try:
@@ -119,6 +123,7 @@ class DataHandler:
 
         # Save config.
         self.save_config_to_file()
+        self.update_aaclient_settings()
 
         # Start Scheduler
         thread = threading.Thread(target=self.schedule_checker, name="Schedule_Thread")
@@ -144,6 +149,7 @@ class DataHandler:
                         "preferred_extensions_non_fiction": self.preferred_extensions_non_fiction,
                         "search_last_name_only": self.search_last_name_only,
                         "search_shortened_title": self.search_shortened_title,
+                        "aa_client_type": self.aa_client_type,
                     },
                     json_file,
                     indent=4,
@@ -340,9 +346,10 @@ class DataHandler:
 
     def find_link_and_download(self, req_item):
         finder_functions = [
+            self._link_finder_annas_archive,
             self._link_finder_libgen_api, 
             self._link_finder_libgen_is, 
-            self._link_finder_libgen_li
+            self._link_finder_libgen_li,
             ]
         
         for func in finder_functions:
@@ -358,7 +365,7 @@ class DataHandler:
                     req_item["status"] = "Link Found"
                     socketio.emit("libgen_update", {"status": self.libgen_status, "data": self.libgen_items, "percent_completion": self.percent_completion})
                     for link in search_results:
-                        ret = self.download_from_libgen(req_item, link)
+                        ret = self.download_from_mirror(req_item, link)
                         if ret == "Success":
                             req_item["status"] = "Download Complete"
                             break
@@ -578,6 +585,74 @@ class DataHandler:
         finally:
             return found_links
 
+    def _link_finder_annas_archive(self, req_item):
+        if (self.aaclient is None):
+            return []
+        try:
+            self.general_logger.warning(f'Searching annas-archive for Book: {req_item["author"]} - {req_item["book_name"]} - Allowed Languages: {",".join(req_item["allowed_languages"])}')
+            author = req_item["author"]
+            book_name = req_item["book_name"]
+
+            author_search_text = f"{author.split(' ')[-1]}" if self.search_last_name_only else author
+            book_search_text = book_name.split(":")[0] if self.search_shortened_title else book_name
+            query_text = f"{author_search_text} - {book_search_text}"
+
+            found_links = []
+            search_item = query_text.replace(" ", "+")
+            url = f"http://annas-archive.org/search?index=&q={search_item}"
+            response = requests.get(url, timeout=self.request_timeout)
+            if response.status_code == 200:
+                parsetext = response.text.replace(("<!--"), '').replace("-->", '')
+                soup = BeautifulSoup(parsetext, "html.parser")
+                books = soup.find("div", {"id":"aarecord-list"})
+                rows = books.select("a")
+                for potential_book in rows:
+                    try:
+                        try:
+                            title_string = potential_book.find("h3").get_text().strip()
+                        except:
+                            title_string = ""
+                            
+                        try:
+                            author_string = potential_book.find("div", {"class" :"italic"}).get_text().strip()
+                        except:
+                            author_string = ""
+                        
+                        try:
+                            # contains language and file type
+                            info = potential_book.find("div", {"class" :"text-gray-500"}).get_text().strip()
+                        except:
+                            info = "english"
+                            
+                        file_type_check = any(ft.replace(".", "").lower() in info.lower() for ft in self.preferred_extensions_fiction)
+                        language_check = any(l.lower() in info.lower() for l in req_item["allowed_languages"]) or self.selected_language.lower() == "all"
+
+                        if file_type_check and language_check:
+                            author_name_match_ratio = self.compare_author_names(author, author_string)
+                            book_name_match_ratio = fuzz.ratio(title_string, book_search_text)
+                            if author_name_match_ratio >= self.minimum_match_ratio and book_name_match_ratio >= self.minimum_match_ratio:
+                                href = potential_book["href"]
+                                if href.startswith("/md5"):
+                                    found_links.append(f"http://annas-archive.org{href}")
+                    except:
+                        pass
+
+                if not found_links:
+                    req_item["status"] = "No Link Found"
+                socketio.emit("libgen_update", {"status": "Success", "data": self.libgen_items, "percent_completion": self.percent_completion})
+            else:
+                socketio.emit("libgen_update", {"status": "Error", "data": self.libgen_items, "percent_completion": self.percent_completion})
+                self.general_logger.error("Libgen Connection Error: " + str(response.status_code) + " Data: " + response.text)
+                req_item["status"] = "Libgen Error"
+                socketio.emit("libgen_update", {"status": self.libgen_status, "data": self.libgen_items, "percent_completion": self.percent_completion})
+        
+        except Exception as e:
+            self.general_logger.error(f"Error Searching libgen.li: {str(e)}")
+            raise Exception(f"Error Searching libgen.li: {str(e)}")
+
+        finally:
+            return found_links
+    
     def compare_author_names(self, author, author_string):
         try:
             processed_author = self.preprocess(author)
@@ -598,12 +673,16 @@ class DataHandler:
         words.sort()
         return " ".join(words)
 
-    def download_from_libgen(self, req_item, link):
+    def download_from_mirror(self, req_item, link):
 
         req_item["status"] = "Checking Link"
         socketio.emit("libgen_update", {"status": self.libgen_status, "data": self.libgen_items, "percent_completion": self.percent_completion})
-
-        if self.is_using_libgen_api:
+        
+        isAnna = False
+        if "annas-archive" in link:
+            isAnna = True
+            file_type = "" # determined in aaclient.py  
+        elif self.is_using_libgen_api:
             valid_book_extensions = self.preferred_extensions_non_fiction
             link_url = link
             try:
@@ -656,27 +735,28 @@ class DataHandler:
                 file_type = None
                 self.general_logger.info("File extension not in url or invalid, checking link content...")
 
-        try:
-            download_response = requests.get(link_url, stream=True)
+        if not isAnna:
+            try:
+                download_response = requests.get(link_url, stream=True)
 
-        except Exception as e:
-            req_item["status"] = "Link Failed"
-            socketio.emit("libgen_update", {"status": self.libgen_status, "data": self.libgen_items, "percent_completion": self.percent_completion})
-            self.general_logger.error(f"Exception {str(e)} thrown by: {link_url}")
-            return "Link Failed"
+            except Exception as e:
+                req_item["status"] = "Link Failed"
+                socketio.emit("libgen_update", {"status": self.libgen_status, "data": self.libgen_items, "percent_completion": self.percent_completion})
+                self.general_logger.error(f"Exception {str(e)} thrown by: {link_url}")
+                return "Link Failed"
 
-        if file_type == None or ".php" in file_type:
-            link_file_name_text = download_response.headers.get("content-disposition")
-            if not link_file_name_text:
-                return "Unknown File Type"
+            if file_type == None or ".php" in file_type:
+                link_file_name_text = download_response.headers.get("content-disposition")
+                if not link_file_name_text:
+                    return "Unknown File Type"
 
-            for ext in valid_book_extensions:
-                if ext in link_file_name_text.lower():
-                    file_type = ext
-                    break
+                for ext in valid_book_extensions:
+                    if ext in link_file_name_text.lower():
+                        file_type = ext
+                        break
 
-        if not file_type or file_type not in valid_book_extensions:
-            return "Wrong File Type"
+            if not file_type or file_type not in valid_book_extensions:
+                return "Wrong File Type"
 
         cleaned_author_name = re.sub(r"\s{2,}", " ", re.sub(r'[\\*?:"<>|]', " - ", req_item["author"].replace("/", "+")))
         cleaned_book_name = re.sub(r"\s{2,}", " ", re.sub(r'[\\*?:"<>|]', " - ", req_item["book_name"].replace("/", "+")))
@@ -721,11 +801,25 @@ class DataHandler:
         if self.libgen_stop_event.is_set():
             raise Exception("Cancelled")
 
-        if download_response.status_code == 200:
-            # Download file
-            req_item["status"] = "Downloading"
+        if not isAnna and download_response.status_code != 200:
+            req_item["status"] = "Download Error"
             socketio.emit("libgen_update", {"status": self.libgen_status, "data": self.libgen_items, "percent_completion": self.percent_completion})
-
+            error_string = f"{download_response.status_code} : {download_response.text}"
+            self.general_logger.error(f"Error downloading: {os.path.basename(file_path)} - {error_string}")
+            return error_string
+        
+        socketio.emit("libgen_update", {"status": self.libgen_status, "data": self.libgen_items, "percent_completion": self.percent_completion})
+        
+        if isAnna and self.aaclient is not None:
+            try:
+                req_item["status"] = "Torrenting"                
+                if self.aaclient.torrent_from_bookbounty(link, os.path.basename(file_path), os.path.dirname(file_path)):
+                    return "Success"
+            except Exception as e:
+                self.general_logger.error(f"Error downloading from Anna: {str(e)}")
+                
+        elif download_response.status_code == 200:
+            req_item["status"] = "Downloading"
             total_size = int(download_response.headers.get("content-length", 0))
             downloaded_size = 0
             chunk_counter = 0
@@ -753,18 +847,12 @@ class DataHandler:
                     os.remove(f.name)
                     self.general_logger.info(f"Removed temp file: {f.name}")
 
-            if os.path.exists(file_path):
-                self.general_logger.info(f"Downloaded: {link_url} to {file_path}")
-                return "Success"
-            else:
-                self.general_logger.info("Downloaded file not found in Directory")
-                return "Failed"
+        if os.path.exists(file_path):
+            self.general_logger.info(f"Downloaded: {link_url} to {file_path}")
+            return "Success"
         else:
-            req_item["status"] = "Download Error"
-            socketio.emit("libgen_update", {"status": self.libgen_status, "data": self.libgen_items, "percent_completion": self.percent_completion})
-            error_string = f"{download_response.status_code} : {download_response.text}"
-            self.general_logger.error(f"Error downloading: {os.path.basename(file_path)} - {error_string}")
-            return error_string
+            self.general_logger.info("Downloaded file not found in Directory")
+            return "Failed"
 
     def reset_readarr(self):
         self.readarr_stop_event.set()
@@ -818,6 +906,38 @@ class DataHandler:
         except Exception as e:
             self.general_logger.error(f"Failed to update settings: {str(e)}")
 
+    def update_aaclient_settings(self):
+        try:
+            if self.aa_client_type.lower() == "hnr":
+                self.aaclient = aaclient(self.general_logger)
+                return
+            
+            if "qbittorrent" != self.aa_client_type.lower():
+                self.aaclient = None
+                return
+
+            endpoint = f"{self.readarr_address}/api/v1/downloadclient/"
+            params = {"apikey": self.readarr_api_key}
+            response = requests.get(endpoint, params=params, timeout=self.request_timeout)
+            if response.status_code == 200:
+                downloadclients = response.json()
+                current_priority = 51 # readarr max is 50
+                for dc in downloadclients:
+                    if dc["implementationName"] == "qBittorrent":
+                        if dc["priority"] > current_priority:
+                            continue
+                        current_priority = dc["priority"]
+                        download_client = {}
+                        for fields in dc["fields"]:
+                            if "name" in fields and "value" in fields:
+                                download_client[fields["name"]] = fields["value"]                
+                        self.aaclient = aaclient(self.general_logger, download_client)
+                
+        except Exception as e:
+            self.general_logger.error(f"Failed to update aaclient_settings: {str(e)}")
+            self.aaclient = None
+
+   
     def parse_sync_schedule(self, input_string):
         try:
             ret = []
