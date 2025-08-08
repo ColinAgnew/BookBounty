@@ -515,9 +515,11 @@ class DataHandler:
             query_text = f"{author_search_text} - {book_search_text}"
 
             found_links = []
+
             search_item= urllib.parse.quote(query_text)
-            url = f"http://libgen.bz/index.php?req={search_item}"
+            url = f"http://libgen.li/index.php?req={search_item}"
             self.general_logger.warning(f'Search Url: {url} ')
+
             response = requests.get(url, timeout=self.request_timeout)
             if response.status_code == 200:
                 soup = BeautifulSoup(response.text, "html.parser")
@@ -535,6 +537,7 @@ class DataHandler:
                         except:
                             author_string = ""
                         try:
+
                             a_tags = cells[0].find_all("a")
                             raw_title = ""
                             for a in a_tags:
@@ -542,6 +545,7 @@ class DataHandler:
                                 if text:
                                     raw_title = text
                                     break
+
                             if "\nISBN" in raw_title:
                                 title_string = raw_title.split("\nISBN")[0]
                             elif "\nASIN" in raw_title:
@@ -550,7 +554,7 @@ class DataHandler:
                                 title_string = raw_title
                         except:
                             title_string = ""
-                        self.general_logger.warning(f"Title String: {title_string}")
+
                         try:
                             language = cells[4].get_text().strip()
                         except:
@@ -563,6 +567,7 @@ class DataHandler:
                         language_check = language.lower() in req_item["allowed_languages"] or self.selected_language.lower() == "all"
 
                         if file_type_check and language_check:
+
                             author_name = author.strip()
 
                             # Format 1: Firstname Lastname (original)
@@ -585,6 +590,7 @@ class DataHandler:
                             author_name_match_ratio = max(ratio1, ratio2)
 
                             # Book title match as before
+
                             book_name_match_ratio = fuzz.ratio(title_string, book_search_text)
                             if author_name_match_ratio >= self.minimum_match_ratio and book_name_match_ratio >= self.minimum_match_ratio:
                                 mirrors = cells[8]
