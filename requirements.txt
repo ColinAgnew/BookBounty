@@ -9,3 +9,7 @@ libgen_api
 unidecode
 thefuzz
 iso639-lang
+libtorrent
+lxml
+qbittorrent-api
+bcoding
