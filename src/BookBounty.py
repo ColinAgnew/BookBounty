@@ -15,7 +15,7 @@ from flask_socketio import SocketIO
 from bs4 import BeautifulSoup
 from thefuzz import fuzz
 from libgen_api import LibgenSearch
-
+import urllib.parse
 
 class DataHandler:
     def __init__(self):
@@ -347,9 +347,9 @@ class DataHandler:
     def find_link_and_download(self, req_item):
         finder_functions = [
             self._link_finder_annas_archive,
+            self._link_finder_libgen_li,
             self._link_finder_libgen_api, 
             self._link_finder_libgen_is, 
-            self._link_finder_libgen_li,
             ]
         
         for func in finder_functions:
@@ -515,8 +515,11 @@ class DataHandler:
             query_text = f"{author_search_text} - {book_search_text}"
 
             found_links = []
-            search_item = query_text.replace(" ", "+")
+
+            search_item= urllib.parse.quote(query_text)
             url = f"http://libgen.li/index.php?req={search_item}"
+            self.general_logger.warning(f'Search Url: {url} ')
+
             response = requests.get(url, timeout=self.request_timeout)
             if response.status_code == 200:
                 soup = BeautifulSoup(response.text, "html.parser")
@@ -534,7 +537,15 @@ class DataHandler:
                         except:
                             author_string = ""
                         try:
-                            raw_title = cells[0].find_all("a")[0].get_text().strip()
+
+                            a_tags = cells[0].find_all("a")
+                            raw_title = ""
+                            for a in a_tags:
+                                text = a.get_text().strip()
+                                if text:
+                                    raw_title = text
+                                    break
+
                             if "\nISBN" in raw_title:
                                 title_string = raw_title.split("\nISBN")[0]
                             elif "\nASIN" in raw_title:
@@ -543,6 +554,7 @@ class DataHandler:
                                 title_string = raw_title
                         except:
                             title_string = ""
+
                         try:
                             language = cells[4].get_text().strip()
                         except:
@@ -555,7 +567,30 @@ class DataHandler:
                         language_check = language.lower() in req_item["allowed_languages"] or self.selected_language.lower() == "all"
 
                         if file_type_check and language_check:
-                            author_name_match_ratio = self.compare_author_names(author, author_string)
+
+                            author_name = author.strip()
+
+                            # Format 1: Firstname Lastname (original)
+                            author_format1 = author_name
+
+                            # Format 2: Lastname, Firstname
+                            parts = author_name.split()
+                            if len(parts) >= 2:
+                                firstname = " ".join(parts[:-1])
+                                lastname = parts[-1]
+                                author_format2 = f"{lastname}, {firstname}"
+                            else:
+                                author_format2 = author_name  # fallback to original if can't split properly
+
+                            # Compare both formats
+                            ratio1 = self.compare_author_names(author_format1, author_string)
+                            ratio2 = self.compare_author_names(author_format2, author_string)
+
+                            # Pick best match
+                            author_name_match_ratio = max(ratio1, ratio2)
+
+                            # Book title match as before
+
                             book_name_match_ratio = fuzz.ratio(title_string, book_search_text)
                             if author_name_match_ratio >= self.minimum_match_ratio and book_name_match_ratio >= self.minimum_match_ratio:
                                 mirrors = cells[8]
