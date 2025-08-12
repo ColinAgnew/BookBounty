@@ -1,9 +1,9 @@
-name: develop-ci
+name: ca-BookBounty-ci
 
 on:
   push:
     branches:
-      - develop
+      - main
     paths-ignore:
       - '**/*.md'
 
