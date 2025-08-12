@@ -41,4 +41,4 @@ jobs:
           file: ./Dockerfile
           push: true
           tags: |
-            ${{ env.REPO_NAME }}:develop
+            ${{ env.REPO_NAME }}:latest
