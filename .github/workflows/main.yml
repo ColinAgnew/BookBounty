@@ -1,4 +1,4 @@
-name: BookBounty--ci
+name: ci
 
 permissions:
   contents: read
