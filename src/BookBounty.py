@@ -514,7 +514,7 @@ class DataHandler:
 
     def _link_finder_libgen_li(self, req_item):
         try:
-            self.general_logger.warning(f'Searching libgen.la for Book: {req_item["author"]} - {req_item["book_name"]} - Allowed Languages: {",".join(req_item["allowed_languages"])}')
+            self.general_logger.warning(f'Searching {self.libgen_address_two} for Book: {req_item["author"]} - {req_item["book_name"]} - Allowed Languages: {",".join(req_item["allowed_languages"])}')
             author = req_item["author"]
             book_name = req_item["book_name"]
 
@@ -608,7 +608,7 @@ class DataHandler:
                                     if href.startswith("http://") or href.startswith("https://"):
                                         found_links.append(href)
                                     elif href.startswith("/"):
-                                        found_links.append("http://libgen.la" + href)
+                                        found_links.append(f"{self.libgen_address_two}" + href)
                     except:
                         pass
 
@@ -622,8 +622,8 @@ class DataHandler:
                 socketio.emit("libgen_update", {"status": self.libgen_status, "data": self.libgen_items, "percent_completion": self.percent_completion})
         
         except Exception as e:
-            self.general_logger.error(f"Error Searching libgen.la: {str(e)}")
-            raise Exception(f"Error Searching libgen.la: {str(e)}")
+            self.general_logger.error(f"Error Searching {self.libgen_address_two}: {str(e)}")
+            raise Exception(f"Error Searching {self.libgen_address_two}: {str(e)}")
 
         finally:
             return found_links
@@ -690,8 +690,8 @@ class DataHandler:
                 socketio.emit("libgen_update", {"status": self.libgen_status, "data": self.libgen_items, "percent_completion": self.percent_completion})
         
         except Exception as e:
-            self.general_logger.error(f"Error Searching libgen.la: {str(e)}")
-            raise Exception(f"Error Searching libgen.la: {str(e)}")
+            self.general_logger.error(f"Error Searching {self.libgen_address_two}: {str(e)}")
+            raise Exception(f"Error Searching {self.libgen_address_two}: {str(e)}")
 
         finally:
             return found_links
