@@ -63,7 +63,7 @@ class DataHandler:
             "readarr_api_key": "",
             "request_timeout": 120.0,
             "libgen_address_one": "http://libgen.is",
-            "libgen_address_two": "http://libgen.la",
+            "libgen_address_two": "http://libgen.li",
             "thread_limit": 1,
             "sleep_interval": 0,
             "library_scan_on_completion": True,
