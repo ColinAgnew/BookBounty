@@ -690,8 +690,8 @@ class DataHandler:
                 socketio.emit("libgen_update", {"status": self.libgen_status, "data": self.libgen_items, "percent_completion": self.percent_completion})
         
         except Exception as e:
-            self.general_logger.error(f"Error Searching {self.libgen_address_two}: {str(e)}")
-            raise Exception(f"Error Searching {self.libgen_address_two}: {str(e)}")
+            self.general_logger.error(f"Error Searching annas-archive: {str(e)}")
+            raise Exception(f"Error Searching annas-archive: {str(e)}")
 
         finally:
             return found_links
