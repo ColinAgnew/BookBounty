@@ -41,7 +41,15 @@ echo "-----------------"
 echo "Setting up directories.."
 mkdir -p /bookbounty/downloads /bookbounty/config
 chown -R ${PUID}:${PGID} /bookbounty
-chmod -R 755 /bookbounty/downloads
+
+# Background process to fix permissions
+(
+  echo "Starting permission monitor..."
+  while true; do
+    find /bookbounty/downloads -type f -exec chmod 777 {} \; 2>/dev/null
+    sleep 10
+  done
+) &
 
 # Start the application with the specified user permissions
 echo "Running BookBounty..."
