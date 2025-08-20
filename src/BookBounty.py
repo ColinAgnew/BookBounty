@@ -62,8 +62,8 @@ class DataHandler:
             "readarr_address": "http://192.168.1.2:8787",
             "readarr_api_key": "",
             "request_timeout": 120.0,
-            "libgen_address_v1": "http://libgen.is",
-            "libgen_address_v2": "http://libgen.la",
+            "libgen_address_one": "http://libgen.is",
+            "libgen_address_two": "http://libgen.la",
             "thread_limit": 1,
             "sleep_interval": 0,
             "library_scan_on_completion": True,
@@ -80,8 +80,8 @@ class DataHandler:
         # Load settings from environmental variables (which take precedence) over the configuration file.
         self.readarr_address = os.environ.get("readarr_address", "")
         self.readarr_api_key = os.environ.get("readarr_api_key", "")
-        self.libgen_address_v1 = os.environ.get("libgen_address_v1", "")
-        self.libgen_address_v2 = os.environ.get("libgen_address_v2", "")
+        self.libgen_address_one = os.environ.get("libgen_address_one", "")
+        self.libgen_address_two = os.environ.get("libgen_address_two", "")
         sync_schedule = os.environ.get("sync_schedule", "")
         self.sync_schedule = self.parse_sync_schedule(sync_schedule) if sync_schedule != "" else ""
         sleep_interval = os.environ.get("sleep_interval", "")
@@ -141,8 +141,8 @@ class DataHandler:
                     {
                         "readarr_address": self.readarr_address,
                         "readarr_api_key": self.readarr_api_key,
-                        "libgen_address_v1": self.libgen_address_v1,
-                        "libgen_address_v2": self.libgen_address_v2,
+                        "libgen_address_one": self.libgen_address_one,
+                        "libgen_address_two": self.libgen_address_two,
                         "sleep_interval": self.sleep_interval,
                         "sync_schedule": self.sync_schedule,
                         "minimum_match_ratio": self.minimum_match_ratio,
@@ -435,7 +435,7 @@ class DataHandler:
 
     def _link_finder_libgen_is(self, req_item):
         try:
-            self.general_logger.warning(f'Searching {self.libgen_address_v1} for Book: {req_item["author"]} - {req_item["book_name"]} - Allowed Languages: {",".join(req_item["allowed_languages"])}')
+            self.general_logger.warning(f'Searching {self.libgen_address_one} for Book: {req_item["author"]} - {req_item["book_name"]} - Allowed Languages: {",".join(req_item["allowed_languages"])}')
             author = req_item["author"]
             book_name = req_item["book_name"]
 
@@ -445,7 +445,7 @@ class DataHandler:
 
             found_links = []
             search_item = query_text.replace(" ", "+")
-            url = f"{self.libgen_address_v1}/fiction/?q={search_item}"
+            url = f"{self.libgen_address_one}/fiction/?q={search_item}"
             response = requests.get(url, timeout=self.request_timeout)
             if response.status_code == 200:
                 soup = BeautifulSoup(response.text, "html.parser")
@@ -506,8 +506,8 @@ class DataHandler:
                 socketio.emit("libgen_update", {"status": self.libgen_status, "data": self.libgen_items, "percent_completion": self.percent_completion})
 
         except Exception as e:
-            self.general_logger.error(f"Error Searching {self.libgen_address_v1}: {str(e)}")
-            raise Exception(f"Error Searching {self.libgen_address_v1}: {str(e)}")
+            self.general_logger.error(f"Error Searching {self.libgen_address_one}: {str(e)}")
+            raise Exception(f"Error Searching {self.libgen_address_one}: {str(e)}")
 
         finally:
             return found_links
@@ -525,7 +525,7 @@ class DataHandler:
             found_links = []
 
             search_item= urllib.parse.quote(query_text)
-            url = f"{self.libgen_address_v2}/index.php?req={search_item}"
+            url = f"{self.libgen_address_two}/index.php?req={search_item}"
             self.general_logger.warning(f'Search Url: {url} ')
 
             response = requests.get(url, timeout=self.request_timeout)
@@ -756,7 +756,7 @@ class DataHandler:
                                     if download_link:
                                         link_text = download_link.get("href")
                                         if "http" not in link_text:
-                                            link_url = f"{self.libgen_address_v2}/" + link_text
+                                            link_url = f"{self.libgen_address_two}/" + link_text
                                         else:
                                             link_url = link_text
                                         break
