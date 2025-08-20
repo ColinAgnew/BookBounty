@@ -383,6 +383,8 @@ class DataHandler:
             
                 if req_item["status"] == "Download Complete":
                     break
+                elif req_item["status"] == "File Already Exists":
+                    break
 
             except Exception as e:
                 self.general_logger.error(f"Error Downloading: {str(e)}")
