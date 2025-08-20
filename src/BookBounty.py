@@ -443,7 +443,7 @@ class DataHandler:
 
             found_links = []
             search_item = query_text.replace(" ", "+")
-            url = f"http://{self.libgen_address_v1}/fiction/?q={search_item}"
+            url = f"{self.libgen_address_v1}/fiction/?q={search_item}"
             response = requests.get(url, timeout=self.request_timeout)
             if response.status_code == 200:
                 soup = BeautifulSoup(response.text, "html.parser")
@@ -523,7 +523,7 @@ class DataHandler:
             found_links = []
 
             search_item= urllib.parse.quote(query_text)
-            url = f"http://{self.libgen_address_v2}/index.php?req={search_item}"
+            url = f"{self.libgen_address_v2}/index.php?req={search_item}"
             self.general_logger.warning(f'Search Url: {url} ')
 
             response = requests.get(url, timeout=self.request_timeout)
@@ -754,7 +754,7 @@ class DataHandler:
                                     if download_link:
                                         link_text = download_link.get("href")
                                         if "http" not in link_text:
-                                            link_url = f"https://{self.libgen_address_v1}/" + link_text
+                                            link_url = f"{self.libgen_address_v1}/" + link_text
                                         else:
                                             link_url = link_text
                                         break
