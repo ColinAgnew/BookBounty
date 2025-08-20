@@ -754,7 +754,7 @@ class DataHandler:
                                     if download_link:
                                         link_text = download_link.get("href")
                                         if "http" not in link_text:
-                                            link_url = f"{self.libgen_address_v1}/" + link_text
+                                            link_url = f"{self.libgen_address_v2}/" + link_text
                                         else:
                                             link_url = link_text
                                         break
