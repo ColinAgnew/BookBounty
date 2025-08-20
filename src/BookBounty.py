@@ -506,7 +506,7 @@ class DataHandler:
 
     def _link_finder_libgen_li(self, req_item):
         try:
-            self.general_logger.warning(f'Searching libgen.li for Book: {req_item["author"]} - {req_item["book_name"]} - Allowed Languages: {",".join(req_item["allowed_languages"])}')
+            self.general_logger.warning(f'Searching libgen.la for Book: {req_item["author"]} - {req_item["book_name"]} - Allowed Languages: {",".join(req_item["allowed_languages"])}')
             author = req_item["author"]
             book_name = req_item["book_name"]
 
@@ -517,7 +517,7 @@ class DataHandler:
             found_links = []
 
             search_item= urllib.parse.quote(query_text)
-            url = f"http://libgen.li/index.php?req={search_item}"
+            url = f"http://libgen.la/index.php?req={search_item}"
             self.general_logger.warning(f'Search Url: {url} ')
 
             response = requests.get(url, timeout=self.request_timeout)
@@ -600,7 +600,7 @@ class DataHandler:
                                     if href.startswith("http://") or href.startswith("https://"):
                                         found_links.append(href)
                                     elif href.startswith("/"):
-                                        found_links.append("http://libgen.li" + href)
+                                        found_links.append("http://libgen.la" + href)
                     except:
                         pass
 
@@ -614,8 +614,8 @@ class DataHandler:
                 socketio.emit("libgen_update", {"status": self.libgen_status, "data": self.libgen_items, "percent_completion": self.percent_completion})
         
         except Exception as e:
-            self.general_logger.error(f"Error Searching libgen.li: {str(e)}")
-            raise Exception(f"Error Searching libgen.li: {str(e)}")
+            self.general_logger.error(f"Error Searching libgen.la: {str(e)}")
+            raise Exception(f"Error Searching libgen.la: {str(e)}")
 
         finally:
             return found_links
@@ -682,8 +682,8 @@ class DataHandler:
                 socketio.emit("libgen_update", {"status": self.libgen_status, "data": self.libgen_items, "percent_completion": self.percent_completion})
         
         except Exception as e:
-            self.general_logger.error(f"Error Searching libgen.li: {str(e)}")
-            raise Exception(f"Error Searching libgen.li: {str(e)}")
+            self.general_logger.error(f"Error Searching libgen.la: {str(e)}")
+            raise Exception(f"Error Searching libgen.la: {str(e)}")
 
         finally:
             return found_links
@@ -748,7 +748,7 @@ class DataHandler:
                                     if download_link:
                                         link_text = download_link.get("href")
                                         if "http" not in link_text:
-                                            link_url = "https://libgen.li/" + link_text
+                                            link_url = "https://libgen.la/" + link_text
                                         else:
                                             link_url = link_text
                                         break
@@ -1066,3 +1066,4 @@ def update_settings(data):
 
 if __name__ == "__main__":
     socketio.run(app, host="0.0.0.0", port=5000)
+
