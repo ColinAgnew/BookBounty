@@ -42,6 +42,15 @@ echo "Setting up directories.."
 mkdir -p /bookbounty/downloads /bookbounty/config
 chown -R ${PUID}:${PGID} /bookbounty
 
+# Background process to fix permissions
+(
+  echo "Starting permission monitor..."
+  while true; do
+    find /bookbounty/downloads -type f -exec chmod 755 {} \; 2>/dev/null
+    sleep 10
+  done
+) &
+
 # Start the application with the specified user permissions
 echo "Running BookBounty..."
 exec su-exec ${PUID}:${PGID} gunicorn src.BookBounty:app -c gunicorn_config.py
