@@ -1,6 +1,4 @@
 name: develop-ci
-permissions:
-  contents: read
 
 on:
   push:
