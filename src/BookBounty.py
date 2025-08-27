@@ -64,6 +64,8 @@ class DataHandler:
             "request_timeout": 120.0,
             "libgen_address_v1": "http://libgen.is",
             "libgen_address_v2": "http://libgen.li",
+            "libgen_v1_list": "",
+            "libgen_v2_list": "",
             "thread_limit": 1,
             "sleep_interval": 0,
             "library_scan_on_completion": True,
@@ -80,6 +82,8 @@ class DataHandler:
         # Load settings from environmental variables (which take precedence) over the configuration file.
         self.readarr_address = os.environ.get("readarr_address", "")
         self.readarr_api_key = os.environ.get("readarr_api_key", "")
+        self.libgen_address_v1= os.environ.get("libgen_address_v1", "")
+        self.libgen_address_v2= os.environ.get("libgen_address_v2", "")
         self.libgen_v1_list= os.environ.get("libgen_v1_list", "").split(",")
         self.libgen_v2_list= os.environ.get("libgen_v2_list", "").split(",")
         sync_schedule = os.environ.get("sync_schedule", "")
