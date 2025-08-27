@@ -62,8 +62,8 @@ class DataHandler:
             "readarr_address": "http://192.168.1.2:8787",
             "readarr_api_key": "",
             "request_timeout": 120.0,
-            "libgen_address_one": "http://libgen.is",
-            "libgen_address_two": "http://libgen.li",
+            "libgen_address_v1": "http://libgen.is",
+            "libgen_address_v2": "http://libgen.li",
             "thread_limit": 1,
             "sleep_interval": 0,
             "library_scan_on_completion": True,
@@ -80,8 +80,8 @@ class DataHandler:
         # Load settings from environmental variables (which take precedence) over the configuration file.
         self.readarr_address = os.environ.get("readarr_address", "")
         self.readarr_api_key = os.environ.get("readarr_api_key", "")
-        self.libgen_address_one = os.environ.get("libgen_address_one", "")
-        self.libgen_address_two = os.environ.get("libgen_address_two", "")
+        self.libgen_v1_list= os.environ.get("libgen_v1_list", "").split(",")
+        self.libgen_v2_list= os.environ.get("libgen_v2_list", "").split(",")
         sync_schedule = os.environ.get("sync_schedule", "")
         self.sync_schedule = self.parse_sync_schedule(sync_schedule) if sync_schedule != "" else ""
         sleep_interval = os.environ.get("sleep_interval", "")
@@ -141,8 +141,8 @@ class DataHandler:
                     {
                         "readarr_address": self.readarr_address,
                         "readarr_api_key": self.readarr_api_key,
-                        "libgen_address_one": self.libgen_address_one,
-                        "libgen_address_two": self.libgen_address_two,
+                        "libgen_address_v1": self.libgen_address_v1,
+                        "libgen_address_v2": self.libgen_address_v2,
                         "sleep_interval": self.sleep_interval,
                         "sync_schedule": self.sync_schedule,
                         "minimum_match_ratio": self.minimum_match_ratio,
@@ -350,14 +350,50 @@ class DataHandler:
             socketio.emit("libgen_update", {"status": self.libgen_status, "data": self.libgen_items, "percent_completion": self.percent_completion})
             socketio.emit("new_toast_msg", {"title": "End of Session", "message": f"Downloading {self.libgen_status.capitalize()}"})
 
+
+    def get_best_mirror(self, mirrors, timeout=5):
+        """Check which mirror is alive and return the fastest one."""
+        best = None
+        best_time = float("inf")
+        for url in mirrors:
+            try:
+                response = requests.get(url, timeout=timeout)
+                if response.status_code == 200:
+                    elapsed = response.elapsed.total_seconds()
+                    if elapsed < best_time:
+                        best = url
+                        best_time = elapsed
+            except Exception:
+                continue
+        return best
+
+    def update_libgen_addresses(self):
+        """Pull mirrors from environment variables and set the best working ones."""
+        list_one = self.libgen_v1_list
+        list_two = self.libgen_v2_list
+
+        # Clean up empties
+        list_one = [url.strip() for url in list_one if url.strip()]
+        list_two = [url.strip() for url in list_two if url.strip()]
+
+        self.libgen_address_v1= self.get_best_mirror(list_one)
+        self.libgen_address_v2= self.get_best_mirror(list_two)
+
+        self.general_logger.warning(f"Updated LibGen Mirrors:")
+        self.general_logger.warning(f"Using V1 Mirror: {self.libgen_address_v1}")
+        self.general_logger.warning(f"Using V2 Mirror: {self.libgen_address_v2}")
+
+
     def find_link_and_download(self, req_item):
         finder_functions = [
             self._link_finder_annas_archive,
-            self._link_finder_libgen_li,
+            self._link_finder_libgen_v2,
             self._link_finder_libgen_api, 
-            self._link_finder_libgen_is, 
+            self._link_finder_libgen_v1, 
             ]
-        
+
+        self.update_libgen_addresses()
+
         for func in finder_functions:
             try:                
                 self.is_using_libgen_api = False
@@ -433,9 +469,9 @@ class DataHandler:
             self.is_using_libgen_api = True
             return found_links
 
-    def _link_finder_libgen_is(self, req_item):
+    def _link_finder_libgen_v1(self, req_item):
         try:
-            self.general_logger.warning(f'Searching {self.libgen_address_one} for Book: {req_item["author"]} - {req_item["book_name"]} - Allowed Languages: {",".join(req_item["allowed_languages"])}')
+            self.general_logger.warning(f'Searching {self.libgen_address_v1} for Book: {req_item["author"]} - {req_item["book_name"]} - Allowed Languages: {",".join(req_item["allowed_languages"])}')
             author = req_item["author"]
             book_name = req_item["book_name"]
 
@@ -445,7 +481,7 @@ class DataHandler:
 
             found_links = []
             search_item = query_text.replace(" ", "+")
-            url = f"{self.libgen_address_one}/fiction/?q={search_item}"
+            url = f"{self.libgen_address_v1}/fiction/?q={search_item}"
             response = requests.get(url, timeout=self.request_timeout)
             if response.status_code == 200:
                 soup = BeautifulSoup(response.text, "html.parser")
@@ -506,15 +542,15 @@ class DataHandler:
                 socketio.emit("libgen_update", {"status": self.libgen_status, "data": self.libgen_items, "percent_completion": self.percent_completion})
 
         except Exception as e:
-            self.general_logger.error(f"Error Searching {self.libgen_address_one}: {str(e)}")
-            raise Exception(f"Error Searching {self.libgen_address_one}: {str(e)}")
+            self.general_logger.error(f"Error Searching {self.libgen_address_v1}: {str(e)}")
+            raise Exception(f"Error Searching {self.libgen_address_v1}: {str(e)}")
 
         finally:
             return found_links
 
-    def _link_finder_libgen_li(self, req_item):
+    def _link_finder_libgen_v2(self, req_item):
         try:
-            self.general_logger.warning(f'Searching {self.libgen_address_two} for Book: {req_item["author"]} - {req_item["book_name"]} - Allowed Languages: {",".join(req_item["allowed_languages"])}')
+            self.general_logger.warning(f'Searching {self.libgen_address_v2} for Book: {req_item["author"]} - {req_item["book_name"]} - Allowed Languages: {",".join(req_item["allowed_languages"])}')
             author = req_item["author"]
             book_name = req_item["book_name"]
 
@@ -525,7 +561,7 @@ class DataHandler:
             found_links = []
 
             search_item= urllib.parse.quote(query_text)
-            url = f"{self.libgen_address_two}/index.php?req={search_item}"
+            url = f"{self.libgen_address_v2}/index.php?req={search_item}"
             self.general_logger.warning(f'Search Url: {url} ')
 
             response = requests.get(url, timeout=self.request_timeout)
@@ -608,7 +644,7 @@ class DataHandler:
                                     if href.startswith("http://") or href.startswith("https://"):
                                         found_links.append(href)
                                     elif href.startswith("/"):
-                                        found_links.append(f"{self.libgen_address_two}" + href)
+                                        found_links.append(f"{self.libgen_address_v2}" + href)
                     except:
                         pass
 
@@ -622,8 +658,8 @@ class DataHandler:
                 socketio.emit("libgen_update", {"status": self.libgen_status, "data": self.libgen_items, "percent_completion": self.percent_completion})
         
         except Exception as e:
-            self.general_logger.error(f"Error Searching {self.libgen_address_two}: {str(e)}")
-            raise Exception(f"Error Searching {self.libgen_address_two}: {str(e)}")
+            self.general_logger.error(f"Error Searching {self.libgen_address_v2}: {str(e)}")
+            raise Exception(f"Error Searching {self.libgen_address_v2}: {str(e)}")
 
         finally:
             return found_links
@@ -756,7 +792,7 @@ class DataHandler:
                                     if download_link:
                                         link_text = download_link.get("href")
                                         if "http" not in link_text:
-                                            link_url = f"{self.libgen_address_two}/" + link_text
+                                            link_url = f"{self.libgen_address_v2}/" + link_text
                                         else:
                                             link_url = link_text
                                         break
@@ -942,8 +978,8 @@ class DataHandler:
         try:
             self.readarr_address = data["readarr_address"]
             self.readarr_api_key = data["readarr_api_key"]
-            self.libgen_address_one= data["libgen_address_one"]
-            self.libgen_address_two= data["libgen_address_two"]
+            self.libgen_address_v1= data["libgen_address_v1"]
+            self.libgen_address_v2= data["libgen_address_v2"]
             self.sleep_interval = float(data["sleep_interval"])
             self.sync_schedule = self.parse_sync_schedule(data["sync_schedule"])
             self.minimum_match_ratio = float(data["minimum_match_ratio"])
@@ -1003,8 +1039,8 @@ class DataHandler:
         data = {
             "readarr_address": self.readarr_address,
             "readarr_api_key": self.readarr_api_key,
-            "libgen_address_one": self.libgen_address_one,
-            "libgen_address_two": self.libgen_address_two,
+            "libgen_address_v1": self.libgen_address_v1,
+            "libgen_address_v2": self.libgen_address_v2,
             "sleep_interval": self.sleep_interval,
             "sync_schedule": self.sync_schedule,
             "minimum_match_ratio": self.minimum_match_ratio,
