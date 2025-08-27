@@ -115,7 +115,7 @@ save_changes_button.addEventListener("click", () => {
     socket.emit("update_settings", {
         "readarr_address": readarr_address.value,
         "libgen_address_v1": libgen_address_v1.value,
-        "libgen_address_v1": libgen_address_v2.value,
+        "libgen_address_v2": libgen_address_v2.value,
         "readarr_api_key": readarr_api_key.value,
         "sleep_interval": sleep_interval.value,
         "sync_schedule": sync_schedule.value,
