@@ -17,8 +17,6 @@ var save_message = document.getElementById("save-message");
 var save_changes_button = document.getElementById("save-changes-btn");
 const readarr_address = document.getElementById("readarr-address");
 const readarr_api_key = document.getElementById("readarr-api-key");
-const libgen_address_v1= document.getElementById("libgen-address-one");
-const libgen_address_v2= document.getElementById("libgen-address-two");
 const sleep_interval = document.getElementById("sleep-interval");
 const sync_schedule = document.getElementById("sync-schedule");
 const minimum_match_ratio = document.getElementById("minimum-match-ratio");
@@ -101,8 +99,6 @@ config_modal.addEventListener('show.bs.modal', function (event) {
     function handle_settings_loaded(settings) {
         readarr_address.value = settings.readarr_address;
         readarr_api_key.value = settings.readarr_api_key;
-        libgen_address_v1.value = settings.libgen_address_v1;
-        libgen_address_v2.value = settings.libgen_address_v2;
         sleep_interval.value = settings.sleep_interval;
         sync_schedule.value = settings.sync_schedule.join(', ');
         minimum_match_ratio.value = settings.minimum_match_ratio;
@@ -114,8 +110,6 @@ config_modal.addEventListener('show.bs.modal', function (event) {
 save_changes_button.addEventListener("click", () => {
     socket.emit("update_settings", {
         "readarr_address": readarr_address.value,
-        "libgen_address_v1": libgen_address_v1.value,
-        "libgen_address_v2": libgen_address_v2.value,
         "readarr_api_key": readarr_api_key.value,
         "sleep_interval": sleep_interval.value,
         "sync_schedule": sync_schedule.value,
