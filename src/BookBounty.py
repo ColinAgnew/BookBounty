@@ -511,6 +511,7 @@ class DataHandler:
 
 
     def _link_finder_libgen_v2(self, req_item):
+        self.general_logger.warning(f"LibGen v2 mirrors to try: {self.libgen_address_v2_list}")
         found_links = []
         try:
             author = req_item["author"]
@@ -524,6 +525,7 @@ class DataHandler:
 
             # Iterate through multiple libgen v2 addresses
             for base_url in self.libgen_address_v2_list:
+                self.general_logger.warning(f"Trying mirror: {base_url}")
                 try:
                     self.general_logger.warning(
                         f'Searching {base_url} for Book: {req_item["author"]} - {req_item["book_name"]} - Allowed Languages: {",".join(req_item["allowed_languages"])}'
@@ -538,6 +540,7 @@ class DataHandler:
                         table = soup.find("tbody")
                         if table:
                             rows = table.find_all("tr")
+                            self.general_logger.warning(f"{base_url}: Found {len(rows)} rows in table")
                         else:
                             rows = []
 
@@ -599,6 +602,8 @@ class DataHandler:
                                     author_name_match_ratio = max(ratio1, ratio2)
 
                                     book_name_match_ratio = fuzz.ratio(title_string, book_search_text)
+
+                                    self.general_logger.warning(f"Row {row_index}: Author ratio={author_name_match_ratio}, Book ratio={book_name_match_ratio}")
                                     if author_name_match_ratio >= self.minimum_match_ratio and book_name_match_ratio >= self.minimum_match_ratio:
                                         mirrors = cells[8]
                                         links = mirrors.find_all("a", href=True)
@@ -606,8 +611,11 @@ class DataHandler:
                                             href = link["href"]
                                             if href.startswith("http://") or href.startswith("https://"):
                                                 found_links.append(href)
+                                                self.general_logger.warning(f"Found link: {href}")
                                             elif href.startswith("/"):
                                                 found_links.append(f"{base_url}" + href)
+                                                self.general_logger.warning(f"Found link: {href}")
+
                             except:
                                 pass
 
