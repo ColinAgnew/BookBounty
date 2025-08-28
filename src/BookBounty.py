@@ -435,6 +435,7 @@ class DataHandler:
 
 
     def _link_finder_libgen_v1(self, req_item):
+        self.general_logger.warning(f'Trying Libgen v1')
         found_links = []
         author = req_item["author"]
         book_name = req_item["book_name"]
