@@ -80,8 +80,8 @@ class DataHandler:
         # Load settings from environmental variables (which take precedence) over the configuration file.
         self.readarr_address = os.environ.get("readarr_address", "")
         self.readarr_api_key = os.environ.get("readarr_api_key", "")
-        self.libgen_address_v1_list = [url.strip() for url in os.getenv("LIBGEN_V1_LIST", "").split(",") if url.strip()]
-        self.libgen_address_v2_list = [url.strip() for url in os.getenv("LIBGEN_V2_LIST", "").split(",") if url.strip()]
+        self.libgen_address_v1_list = [url.strip() for url in os.getenv("libgen_address_v1_list", "").split(",") if url.strip()]
+        self.libgen_address_v2_list = [url.strip() for url in os.getenv("libgen_address_v2_list", "").split(",") if url.strip()]
         sync_schedule = os.environ.get("sync_schedule", "")
         self.sync_schedule = self.parse_sync_schedule(sync_schedule) if sync_schedule != "" else ""
         sleep_interval = os.environ.get("sleep_interval", "")
