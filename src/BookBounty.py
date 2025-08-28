@@ -364,14 +364,21 @@ class DataHandler:
                 req_item["status"] = "Searching..."
                 socketio.emit("libgen_update", {"status": self.libgen_status, "data": self.libgen_items, "percent_completion": self.percent_completion})
                 search_results = func(req_item)
+
+                if isinstance(search_results, tuple):
+                    base_url, links = search_results
+                else:
+                    base_url = None
+                    links = search_results
+
                 if self.libgen_stop_event.is_set():
                     return
 
-                if search_results:
-                    req_item["status"] = "Link Found"
+                if links:
+                    req_item["status"] = f"Link Found ({base_url})" if base_url else "Link Found"
                     socketio.emit("libgen_update", {"status": self.libgen_status, "data": self.libgen_items, "percent_completion": self.percent_completion})
-                    for link in search_results:
-                        ret = self.download_from_mirror(req_item, link)
+                    for link in links:
+                        ret = self.download_from_mirror(req_item, link, base_url=base_url)
                         if ret == "Success":
                             req_item["status"] = "Download Complete"
                             break
@@ -512,6 +519,7 @@ class DataHandler:
 
     def _link_finder_libgen_v2(self, req_item):
         self.general_logger.warning(f"LibGen v2 mirrors to try: {self.libgen_address_v2_list}")
+        found_base_url = None
         found_links = []
         try:
             author = req_item["author"]
@@ -603,7 +611,6 @@ class DataHandler:
 
                                     book_name_match_ratio = fuzz.ratio(title_string, book_search_text)
 
-                                    self.general_logger.warning(f"Row {row_index}: Author ratio={author_name_match_ratio}, Book ratio={book_name_match_ratio}")
                                     if author_name_match_ratio >= self.minimum_match_ratio and book_name_match_ratio >= self.minimum_match_ratio:
                                         mirrors = cells[8]
                                         links = mirrors.find_all("a", href=True)
@@ -614,12 +621,13 @@ class DataHandler:
                                                 self.general_logger.warning(f"Found link: {href}")
                                             elif href.startswith("/"):
                                                 found_links.append(f"{base_url}" + href)
-                                                self.general_logger.warning(f"Found link: {href}")
+                                                self.general_logger.warning(f"Found link: {base_url}{href}")
 
                             except:
                                 pass
 
                         if found_links:
+                            found_base_url = base_url
                             break  
                         else:
                           self.general_logger.warning(f'Book:{req_item["author"]} - {req_item["book_name"]} not found on {base_url}')
@@ -643,7 +651,8 @@ class DataHandler:
             raise Exception(f"Error Searching libgen v2 list: {str(e)}")
 
         finally:
-            return found_links
+            self.general_logger.warning(f"Links Found: {found_links}")
+            return found_base_url, found_links
 
     def _link_finder_annas_archive(self, req_item):
         if (self.aaclient is None):
@@ -733,7 +742,7 @@ class DataHandler:
         words.sort()
         return " ".join(words)
 
-    def download_from_mirror(self, req_item, link):
+    def download_from_mirror(self, req_item, link, base_url):
 
         req_item["status"] = "Checking Link"
         socketio.emit("libgen_update", {"status": self.libgen_status, "data": self.libgen_items, "percent_completion": self.percent_completion})
@@ -773,19 +782,11 @@ class DataHandler:
                                     if download_link:
                                         link_text = download_link.get("href")
                                         if "http" not in link_text:
-                                            for address in self.libgen_address_v2_list:
-                                                candidate = f"{address}/{link_text}"
-                                                try:
-                                                    test_response = requests.head(candidate, timeout=self.request_timeout)
-                                                    if test_response.status_code == 200:
-                                                        link_url = candidate
-                                                        break
-                                                except:
-                                                    continue
-                                            if not link_url:
-                                                return "Dead Link"
+                                            link_url = base_url + link_text
+                                            self.general_logger.warning(f"Download link : {link_url}")
                                         else:
                                             link_url = link_text
+                                            self.general_logger.warning(f"Download link : {link_url}")
                                         break
                             else:
                                 return "Dead Link"
