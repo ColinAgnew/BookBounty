@@ -782,7 +782,7 @@ class DataHandler:
                                     if download_link:
                                         link_text = download_link.get("href")
                                         if "http" not in link_text:
-                                            link_url = base_url + link_text
+                                            link_url = f"{base_url}/{link_text}"
                                             self.general_logger.warning(f"Download link : {link_url}")
                                         else:
                                             link_url = link_text
