@@ -621,6 +621,9 @@ class DataHandler:
 
                         if found_links:
                             break  
+                        else:
+                          self.general_logger.warning(f'Book:{req_item["author"]} - {req_item["book_name"]} not found on {base_url}')
+                          continue
 
                     else:
                         self.general_logger.error("Libgen Connection Error: " + str(response.status_code) + " Data: " + response.text)
