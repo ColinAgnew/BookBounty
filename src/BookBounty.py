@@ -498,23 +498,25 @@ class DataHandler:
                                         if href.startswith("http://") or href.startswith("https://"):
                                             found_links.append(href)
                     except:
-                        continue
+                        pass
 
                 if found_links:
                     break  
+                elif not found_links:
+                    req_item["status"] = "No Link Found"
+                    socketio.emit("libgen_update", {"status": "Success", "data": self.libgen_items, "percent_completion": self.percent_completion})
+                else:
+                    socketio.emit("libgen_update", {"status": "Error", "data": self.libgen_items, "percent_completion": self.percent_completion})
+                    self.general_logger.error("Libgen Connection Error: " + str(response.status_code) + " Data: " + response.text)
+                    req_item["status"] = "Libgen Error"
+                    socketio.emit("libgen_update", {"status": self.libgen_status, "data": self.libgen_items, "percent_completion": self.percent_completion})
 
             except Exception as e:
-                self.general_logger.error(f"Error Searching {address}: {str(e)}")
-                continue
+                self.general_logger.error(f"Error Searching libgen: {str(e)}")
+                raise Exception(f"Error Searching libgen: {str(e)}")
 
-        if not found_links:
-            req_item["status"] = "No Link Found"
-        else:
-            req_item["status"] = "Success"
-
-        socketio.emit("libgen_update", {"status": req_item["status"], "data": self.libgen_items, "percent_completion": self.percent_completion})
-        return found_links
-
+            finally:
+                return found_links
 
     def _link_finder_libgen_v2(self, req_item):
         found_base_url = None
@@ -635,14 +637,21 @@ class DataHandler:
                 except Exception as e:
                     self.general_logger.warning(f"Failed with {base_url}: {e}")
                     continue
-
-            if not found_links:
-                req_item["status"] = "No Link Found"
-            socketio.emit("libgen_update", {"status": "Success", "data": self.libgen_items, "percent_completion": self.percent_completion})
+ 
+                if found_links:
+                    break  
+                elif not found_links:
+                    req_item["status"] = "No Link Found"
+                    socketio.emit("libgen_update", {"status": "Success", "data": self.libgen_items, "percent_completion": self.percent_completion})
+                else:
+                    socketio.emit("libgen_update", {"status": "Error", "data": self.libgen_items, "percent_completion": self.percent_completion})
+                    self.general_logger.error("Libgen Connection Error: " + str(response.status_code) + " Data: " + response.text)
+                    req_item["status"] = "Libgen Error"
+                    socketio.emit("libgen_update", {"status": self.libgen_status, "data": self.libgen_items, "percent_completion": self.percent_completion})
 
         except Exception as e:
             self.general_logger.error(f"Error Searching libgen v2 list: {str(e)}")
-            raise Exception(f"Error Searching libgen v2 list: {str(e)}")
+            raise Exception(f"Error Searching libgen v2 list: {str(e)}") 
 
         finally:
             self.general_logger.info(f"Links Found for f'Book:{req_item["author"]} - {req_item["book_name"]} on {found_base_url}")
