@@ -440,7 +440,6 @@ class DataHandler:
             self.is_using_libgen_api = True
             return found_links
 
-
     def _link_finder_libgen_v1(self, req_item):
         found_base_url = None
         found_links = []
