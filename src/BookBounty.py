@@ -442,81 +442,95 @@ class DataHandler:
 
 
     def _link_finder_libgen_v1(self, req_item):
+        found_base_url = None
         found_links = []
-        author = req_item["author"]
-        book_name = req_item["book_name"]
+        try:
+            author = req_item["author"]
+            book_name = req_item["book_name"]
 
-        author_search_text = f"{author.split(' ')[-1]}" if self.search_last_name_only else author
-        book_search_text = book_name.split(":")[0] if self.search_shortened_title else book_name
-        query_text = f"{author_search_text} - {book_search_text}"
-        search_item = query_text.replace(" ", "+")
+            author_search_text = f"{author.split(' ')[-1]}" if self.search_last_name_only else author
+            book_search_text = book_name.split(":")[0] if self.search_shortened_title else book_name
+            query_text = f"{author_search_text} - {book_search_text}"
+            search_item = query_text.replace(" ", "+")
 
-        # Loop through all configured v1 addresses
-        for address in self.libgen_address_v1_list:
-            try:
-                self.general_logger.warning(
-                    f'Searching {address} for Book: {req_item["author"]} - {req_item["book_name"]} '
-                    f'- Allowed Languages: {",".join(req_item["allowed_languages"])}'
-                )
-                url = f"{address}/fiction/?q={search_item}"
-                response = requests.get(url, timeout=self.request_timeout)
-                if response.status_code != 200:
-                    self.general_logger.error(f"Libgen Connection Error {response.status_code} at {address}")
-                    continue
+            for address in self.libgen_address_v1_list:
+                try:
+                    self.general_logger.warning(
+                        f'Searching {address} for Book: {req_item["author"]} - {req_item["book_name"]} '
+                        f'- Allowed Languages: {",".join(req_item["allowed_languages"])}'
+                    )
+                    url = f"{address}/fiction/?q={search_item}"
+                    response = requests.get(url, timeout=self.request_timeout)
+                    if response.status_code == 200:
+                        soup = BeautifulSoup(response.text, "html.parser")
+                        table = soup.find("tbody")
+                        rows = table.find_all("tr") if table else []
+                        for row in rows:
+                            try:
+                                cells = row.find_all("td")
+                                try:
+                                    author_string = cells[0].get_text().strip()
+                                except:
+                                    author_string = ""
+                                try:
+                                    raw_title = cells[2].get_text().strip()
+                                    if "\nISBN" in raw_title:
+                                        title_string = raw_title.split("\nISBN")[0]
+                                    elif "\nASIN" in raw_title:
+                                        title_string = raw_title.split("\nASIN")[0]
+                                    else:
+                                        title_string = raw_title
+                                except:
+                                    title_string = ""
+                                try:
+                                    language = cells[3].get_text().strip() 
+                                except: 
+                                    language = "english"
+                                try:
+                                    file_type = cells[4].get_text().strip().lower()
+                                except:
+                                    file_type = ".epub"
+                                file_type_check = any(ft.replace(".", "").lower() in file_type for ft in self.preferred_extensions_fiction)
+                                language_check = language.lower() in req_item["allowed_languages"] or self.selected_language.lower() == "all"
 
-                soup = BeautifulSoup(response.text, "html.parser")
-                table = soup.find("tbody")
-                rows = table.find_all("tr") if table else []
+                                if file_type_check and language_check:
+                                    author_name_match_ratio = self.compare_author_names(author, author_string)
+                                    book_name_match_ratio = fuzz.ratio(title_string, book_search_text)
+                                    if author_name_match_ratio >= self.minimum_match_ratio and book_name_match_ratio >= self.minimum_match_ratio:
+                                        mirrors = row.find("ul", class_="record_mirrors_compact")
+                                        if mirrors:
+                                            links = mirrors.find_all("a", href=True)
+                                            for link in links:
+                                                href = link["href"]
+                                                if href.startswith("http://") or href.startswith("https://"):
+                                                    found_links.append(href)
+                            except:
+                                pass
 
-                for row in rows:
-                    try:
-                        cells = row.find_all("td")
-                        author_string = cells[0].get_text().strip() if len(cells) > 0 else ""
-                        raw_title = cells[2].get_text().strip() if len(cells) > 2 else ""
-                        if "\nISBN" in raw_title:
-                            title_string = raw_title.split("\nISBN")[0]
-                        elif "\nASIN" in raw_title:
-                            title_string = raw_title.split("\nASIN")[0]
-                        else:
-                            title_string = raw_title
+                        if found_links:
+                            found_base_url = address 
+                            break  
 
-                        language = cells[3].get_text().strip() if len(cells) > 3 else "english"
-                        file_type = cells[4].get_text().strip().lower() if len(cells) > 4 else ".epub"
-
-                        file_type_check = any(ft.replace(".", "").lower() in file_type for ft in self.preferred_extensions_fiction)
-                        language_check = language.lower() in req_item["allowed_languages"] or self.selected_language.lower() == "all"
-
-                        if file_type_check and language_check:
-                            author_name_match_ratio = self.compare_author_names(author, author_string)
-                            book_name_match_ratio = fuzz.ratio(title_string, book_search_text)
-                            if author_name_match_ratio >= self.minimum_match_ratio and book_name_match_ratio >= self.minimum_match_ratio:
-                                mirrors = row.find("ul", class_="record_mirrors_compact")
-                                if mirrors:
-                                    links = mirrors.find_all("a", href=True)
-                                    for link in links:
-                                        href = link["href"]
-                                        if href.startswith("http://") or href.startswith("https://"):
-                                            found_links.append(href)
-                    except:
-                        pass
-
-                if found_links:
-                    break  
-                elif not found_links:
-                    req_item["status"] = "No Link Found"
-                    socketio.emit("libgen_update", {"status": "Success", "data": self.libgen_items, "percent_completion": self.percent_completion})
-                else:
-                    socketio.emit("libgen_update", {"status": "Error", "data": self.libgen_items, "percent_completion": self.percent_completion})
+                        if not found_links:
+                            req_item["status"] = "No Link Found"
+                        socketio.emit("libgen_update", {"status": "Success", "data": self.libgen_items, "percent_completion": self.percent_completion})
+                    else:
+                        socketio.emit("libgen_update", {"status": "Error", "data": self.libgen_items, "percent_completion": self.percent_completion})
                     self.general_logger.error("Libgen Connection Error: " + str(response.status_code) + " Data: " + response.text)
                     req_item["status"] = "Libgen Error"
                     socketio.emit("libgen_update", {"status": self.libgen_status, "data": self.libgen_items, "percent_completion": self.percent_completion})
 
-            except Exception as e:
-                self.general_logger.error(f"Error Searching libgen: {str(e)}")
-                raise Exception(f"Error Searching libgen: {str(e)}")
+                except Exception as e:
+                    self.general_logger.warning(f"Failed with {address}: {e}")
+                    continue
 
-            finally:
-                return found_links
+        except Exception as e:
+            self.general_logger.error(f"Error Searching libgen: {str(e)}")
+            raise Exception(f"Error Searching libgen: {str(e)}")
+
+        finally:
+            self.general_logger.info(f"Links Found for Book:{req_item["author"]} - {req_item["book_name"]} on {found_base_url}")
+            return found_base_url, found_links
 
     def _link_finder_libgen_v2(self, req_item):
         found_base_url = None
@@ -531,7 +545,6 @@ class DataHandler:
 
             search_item = urllib.parse.quote(query_text)
 
-            # Iterate through multiple libgen v2 addresses
             for base_url in self.libgen_address_v2_list:
                 try:
                     self.general_logger.warning(
@@ -590,10 +603,8 @@ class DataHandler:
                                 if file_type_check and language_check:
                                     author_name = author.strip()
 
-                                    # Format 1: Firstname Lastname (original)
                                     author_format1 = author_name
 
-                                    # Format 2: Lastname, Firstname
                                     parts = author_name.split()
                                     if len(parts) >= 2:
                                         firstname = " ".join(parts[:-1])
@@ -602,7 +613,6 @@ class DataHandler:
                                     else:
                                         author_format2 = author_name
 
-                                    # Compare both formats
                                     ratio1 = self.compare_author_names(author_format1, author_string)
                                     ratio2 = self.compare_author_names(author_format2, author_string)
                                     author_name_match_ratio = max(ratio1, ratio2)
@@ -625,9 +635,11 @@ class DataHandler:
                         if found_links:
                             found_base_url = base_url
                             break  
-                        else:
-                          self.general_logger.warning(f'Book:{req_item["author"]} - {req_item["book_name"]} not found on {base_url}')
-                          continue
+
+                        if not found_links:
+                            req_item["status"] = "No Link Found"
+                            self.general_logger.warning(f'Book:{req_item["author"]} - {req_item["book_name"]} not found on {base_url}')
+                        socketio.emit("libgen_update", {"status": "Success", "data": self.libgen_items, "percent_completion": self.percent_completion})
 
                     else:
                         self.general_logger.error("Libgen Connection Error: " + str(response.status_code) + " Data: " + response.text)
@@ -638,23 +650,12 @@ class DataHandler:
                     self.general_logger.warning(f"Failed with {base_url}: {e}")
                     continue
  
-                if found_links:
-                    break  
-                elif not found_links:
-                    req_item["status"] = "No Link Found"
-                    socketio.emit("libgen_update", {"status": "Success", "data": self.libgen_items, "percent_completion": self.percent_completion})
-                else:
-                    socketio.emit("libgen_update", {"status": "Error", "data": self.libgen_items, "percent_completion": self.percent_completion})
-                    self.general_logger.error("Libgen Connection Error: " + str(response.status_code) + " Data: " + response.text)
-                    req_item["status"] = "Libgen Error"
-                    socketio.emit("libgen_update", {"status": self.libgen_status, "data": self.libgen_items, "percent_completion": self.percent_completion})
-
         except Exception as e:
             self.general_logger.error(f"Error Searching libgen v2 list: {str(e)}")
             raise Exception(f"Error Searching libgen v2 list: {str(e)}") 
 
         finally:
-            self.general_logger.info(f"Links Found for f'Book:{req_item["author"]} - {req_item["book_name"]} on {found_base_url}")
+            self.general_logger.info(f"Links Found for Book:{req_item["author"]} - {req_item["book_name"]} on {found_base_url}")
             return found_base_url, found_links
 
     def _link_finder_annas_archive(self, req_item):
@@ -786,10 +787,8 @@ class DataHandler:
                                         link_text = download_link.get("href")
                                         if "http" not in link_text:
                                             link_url = f"{base_url}/{link_text}"
-                                            self.general_logger.warning(f"Download link : {link_url}")
                                         else:
                                             link_url = link_text
-                                            self.general_logger.warning(f"Download link : {link_url}")
                                         break
                             else:
                                 return "Dead Link"
