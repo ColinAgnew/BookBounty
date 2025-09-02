@@ -110,7 +110,7 @@ class DataHandler:
         try:
             self.settings_config_file = os.path.join(self.config_folder, "settings_config.json")
             if os.path.exists(self.settings_config_file):
-                self.general_logger.warning(f"Loading Settings via config file")
+                self.general_logger.info(f"Loading Settings via config file")
                 with open(self.settings_config_file, "r") as json_file:
                     ret = json.load(json_file)
                     for key in ret:
@@ -179,13 +179,13 @@ class DataHandler:
                 within_time_window = any(t == current_hour for t in self.sync_schedule)
 
                 if within_time_window:
-                    self.general_logger.warning(f"Time to Start - as in a time window: {self.sync_schedule}")
+                    self.general_logger.info(f"Time to Start - as in a time window: {self.sync_schedule}")
                     self.get_wanted_list_from_readarr()
                     if self.readarr_items:
                         x = list(range(len(self.readarr_items)))
                         self.add_items_to_download(x)
                     else:
-                        self.general_logger.warning("No Missing Items")
+                        self.general_logger.info("No Missing Items")
 
                     self.general_logger.warning("Big sleep for 1 Hour")
                     time.sleep(3600)
@@ -199,7 +199,7 @@ class DataHandler:
 
     def get_wanted_list_from_readarr(self):
         try:
-            self.general_logger.warning(f"Accessing Readarr API")
+            self.general_logger.info(f"Accessing Readarr API")
             self.readarr_status = "busy"
             self.readarr_stop_event.clear()
             self.readarr_items = []
@@ -286,7 +286,7 @@ class DataHandler:
             self.general_logger.error(f"Readarr library scan failed: {str(e)}")
 
         else:
-            self.general_logger.warning(f"Readarr library scan started")
+            self.general_logger.info(f"Readarr library scan started")
 
     def add_items_to_download(self, data):
         try:
@@ -332,11 +332,11 @@ class DataHandler:
 
             if self.libgen_stop_event.is_set():
                 self.libgen_status = "stopped"
-                self.general_logger.warning("Downloading Stopped")
+                self.general_logger.info("Downloading Stopped")
                 self.libgen_in_progress_flag = False
             else:
                 self.libgen_status = "complete"
-                self.general_logger.warning("Downloading Finished")
+                self.general_logger.info("Downloading Finished")
                 self.libgen_in_progress_flag = False
                 if self.library_scan_on_completion:
                     self.trigger_readarr_scan()
@@ -403,7 +403,7 @@ class DataHandler:
 
     def _link_finder_libgen_api(self, req_item):
         try:
-            self.general_logger.warning(f'Searching API for Book: {req_item["author"]} - {req_item["book_name"]} - Allowed Languages: {",".join(req_item["allowed_languages"])}')
+            self.general_logger.info(f'Searching API for Book: {req_item["author"]} - {req_item["book_name"]} - Allowed Languages: {",".join(req_item["allowed_languages"])}')
             author = req_item["author"]
             book_name = req_item["book_name"]
             book_search_text = book_name.split(":")[0] if self.search_shortened_title else book_name
@@ -414,7 +414,7 @@ class DataHandler:
                 with self.libgen_thread_lock:
                     s = LibgenSearch()
                     results = s.search_title(book_search_text)
-                    self.general_logger.warning(f"Found {len(results)} potential matches")
+                    self.general_logger.info(f"Found {len(results)} potential matches")
 
             except Exception as e:
                 self.general_logger.error(f"Error with libgen_api search library: {str(e)}")
@@ -454,7 +454,7 @@ class DataHandler:
 
             for address in self.libgen_address_v1_list:
                 try:
-                    self.general_logger.warning(
+                    self.general_logger.info(
                         f'Searching {address} for Book: {req_item["author"]} - {req_item["book_name"]} '
                         f'- Allowed Languages: {",".join(req_item["allowed_languages"])}'
                     )
@@ -546,12 +546,12 @@ class DataHandler:
 
             for base_url in self.libgen_address_v2_list:
                 try:
-                    self.general_logger.warning(
+                    self.general_logger.info(
                         f'Searching {base_url} for Book: {req_item["author"]} - {req_item["book_name"]} - Allowed Languages: {",".join(req_item["allowed_languages"])}'
                     )
 
                     url = f"{base_url}/index.php?req={search_item}"
-                    self.general_logger.warning(f'Search Url: {url} ')
+                    self.general_logger.info(f'Search Url: {url} ')
 
                     response = requests.get(url, timeout=self.request_timeout)
                     if response.status_code == 200:
@@ -637,7 +637,7 @@ class DataHandler:
 
                         if not found_links:
                             req_item["status"] = "No Link Found"
-                            self.general_logger.warning(f'Book:{req_item["author"]} - {req_item["book_name"]} not found on {base_url}')
+                            self.general_logger.info(f'Book:{req_item["author"]} - {req_item["book_name"]} not found on {base_url}')
                         socketio.emit("libgen_update", {"status": "Success", "data": self.libgen_items, "percent_completion": self.percent_completion})
 
                     else:
@@ -962,7 +962,7 @@ class DataHandler:
             self.general_logger.error(f"Error Resetting libgen: {str(e)}")
 
         else:
-            self.general_logger.warning("Reset Complete")
+            self.general_logger.info("Reset Complete")
 
         finally:
             socketio.emit("libgen_update", {"status": self.libgen_status, "data": self.libgen_items, "percent_completion": self.percent_completion})
