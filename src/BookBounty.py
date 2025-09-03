@@ -352,8 +352,8 @@ class DataHandler:
 
     def find_link_and_download(self, req_item):
         finder_functions = [
-            self._link_finder_annas_archive,
             self._link_finder_libgen_v2,
+            self._link_finder_annas_archive,
             self._link_finder_libgen_api, 
             self._link_finder_libgen_v1, 
             ]
