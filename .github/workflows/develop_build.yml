@@ -1,8 +1,9 @@
-name: Build and Publish Image on Docker Hub
+name: develop-ci
+
 on:
   push:
     branches:
-      - main
+      - develop
     paths-ignore:
       - '**/*.md'
 
@@ -26,6 +27,12 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      - name: Convert repository name to lowercase
+        id: lowercase_repo
+        run: |
+          REPO_NAME=$(echo ${{ github.repository }} | tr '[:upper:]' '[:lower:]')
+          echo "REPO_NAME=$REPO_NAME" >> $GITHUB_ENV
+
       - name: Build and push develop image
         uses: docker/build-push-action@v5
         with:
@@ -34,4 +41,4 @@ jobs:
           file: ./Dockerfile
           push: true
           tags: |
-            cagnew12/bookbounty:latest
+            ${{ env.REPO_NAME }}:develop
