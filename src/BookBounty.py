@@ -352,8 +352,8 @@ class DataHandler:
 
     def find_link_and_download(self, req_item):
         finder_functions = [
-            self._link_finder_annas_archive,
             self._link_finder_libgen_v2,
+            self._link_finder_annas_archive,
             self._link_finder_libgen_api, 
             self._link_finder_libgen_v1, 
             ]
@@ -378,6 +378,7 @@ class DataHandler:
                     req_item["status"] = f"Link Found ({base_url})" if base_url else "Link Found"
                     socketio.emit("libgen_update", {"status": self.libgen_status, "data": self.libgen_items, "percent_completion": self.percent_completion})
                     for link in links:
+                        self.general_logger.info(f'Attempting Download from Link: {link}')
                         ret = self.download_from_mirror(req_item, link, base_url=base_url)
                         if ret == "Success":
                             req_item["status"] = "Download Complete"
