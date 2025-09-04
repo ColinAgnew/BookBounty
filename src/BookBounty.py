@@ -12,9 +12,11 @@ import requests
 try:
     from src.aaclient import aaclient
     from src.search_utils import SearchUtils
+    from src.config import DEFAULT_SETTINGS, DEFAULT_CONFIG_FOLDER, DEFAULT_DOWNLOAD_FOLDER
 except ImportError:
     from aaclient import aaclient
     from search_utils import SearchUtils
+    from config import DEFAULT_SETTINGS, DEFAULT_CONFIG_FOLDER, DEFAULT_DOWNLOAD_FOLDER
 from flask import Flask, render_template
 from flask_socketio import SocketIO
 from bs4 import BeautifulSoup
@@ -66,8 +68,8 @@ class DataHandler:
         self.percent_completion = 0
 
         self.clients_connected_counter = 0
-        self.config_folder = "config"
-        self.download_folder = "downloads"
+        self.config_folder = DEFAULT_CONFIG_FOLDER
+        self.download_folder = DEFAULT_DOWNLOAD_FOLDER
         self.aa_client_type = ""
         self.aaclient = None
 
@@ -87,25 +89,8 @@ class DataHandler:
         Includes validation for numeric settings and proper error handling
         for invalid configuration values.
         """
-        # Defaults
-        default_settings = {
-            "readarr_address": "http://192.168.1.2:8787",
-            "readarr_api_key": "",
-            "request_timeout": 120.0,
-            "libgen_address_v1_list": ["http://libgen.is", "http://libgen.rs"],
-            "libgen_address_v2_list": ["http://libgen.li", "http://libgen.la"],
-            "thread_limit": 1,
-            "sleep_interval": 0,
-            "library_scan_on_completion": True,
-            "sync_schedule": [],
-            "minimum_match_ratio": 90,
-            "selected_language": "English",
-            "selected_path_type": "file",
-            "preferred_extensions_fiction": [".epub", ".mobi", ".azw3", ".djvu"],
-            "preferred_extensions_non_fiction": [".pdf", ".epub", ".mobi", ".azw3", ".djvu"],
-            "search_last_name_only": False,
-            "search_shortened_title": False,
-        }
+        # Use default settings as base
+        default_settings = DEFAULT_SETTINGS.copy()
 
         # Load settings from environmental variables (which take precedence) over the configuration file.
         self.readarr_address = os.environ.get("readarr_address", "")
