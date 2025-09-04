@@ -1,0 +1,30 @@
+{
+    "readarr_address": "http://192.168.1.2:8787",
+    "readarr_api_key": "",
+    "libgen_address_v1_list": [],
+    "libgen_address_v2_list": [],
+    "sleep_interval": 0,
+    "sync_schedule": [],
+    "minimum_match_ratio": 90,
+    "selected_path_type": "file",
+    "library_scan_on_completion": true,
+    "request_timeout": 120.0,
+    "thread_limit": 1,
+    "selected_language": "English",
+    "preferred_extensions_fiction": [
+        ".epub",
+        ".mobi",
+        ".azw3",
+        ".djvu"
+    ],
+    "preferred_extensions_non_fiction": [
+        ".pdf",
+        ".epub",
+        ".mobi",
+        ".azw3",
+        ".djvu"
+    ],
+    "search_last_name_only": false,
+    "search_shortened_title": false,
+    "aa_client_type": ""
+}
