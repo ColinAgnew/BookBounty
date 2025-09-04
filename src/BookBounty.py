@@ -11,8 +11,10 @@ import iso639
 import requests
 try:
     from src.aaclient import aaclient
+    from src.search_utils import SearchUtils
 except ImportError:
     from aaclient import aaclient
+    from search_utils import SearchUtils
 from flask import Flask, render_template
 from flask_socketio import SocketIO
 from bs4 import BeautifulSoup
@@ -21,7 +23,22 @@ from libgen_api import LibgenSearch
 import urllib.parse
 
 class DataHandler:
+    """
+    Main data handler class for BookBounty application.
+    
+    Manages interactions with Readarr API, searches for books on various sources
+    (LibGen, Anna's Archive), and handles downloading and processing of books.
+    
+    This class handles:
+    - Configuration management from environment variables and config files
+    - Readarr API integration for getting missing books
+    - Multiple book source searching (LibGen v1/v2, Anna's Archive)
+    - Download management with progress tracking
+    - Thread safety for concurrent operations
+    """
+    
     def __init__(self):
+        """Initialize the DataHandler with logging and default settings"""
         logging.basicConfig(level=logging.INFO, format="%(message)s")
         self.general_logger = logging.getLogger()
 
@@ -61,6 +78,15 @@ class DataHandler:
         self.load_environ_or_config_settings()
 
     def load_environ_or_config_settings(self):
+        """
+        Load configuration settings from environment variables and config files.
+        
+        Environment variables take precedence over config file settings.
+        If neither is available, default values are used.
+        
+        Includes validation for numeric settings and proper error handling
+        for invalid configuration values.
+        """
         # Defaults
         default_settings = {
             "readarr_address": "http://192.168.1.2:8787",
@@ -229,6 +255,15 @@ class DataHandler:
             self.general_logger.error(f"Scheduler Stopped")
 
     def get_wanted_list_from_readarr(self):
+        """
+        Retrieve the list of wanted/missing books from Readarr API.
+        
+        Fetches all missing books from Readarr, including author information
+        and metadata profiles to determine allowed languages for each book.
+        
+        Updates self.readarr_items with the retrieved data and emits updates
+        via socketio for real-time UI updates.
+        """
         try:
             self.general_logger.info(f"Accessing Readarr API")
             self.readarr_status = "busy"
@@ -482,8 +517,8 @@ class DataHandler:
             author = req_item["author"]
             book_name = req_item["book_name"]
 
-            author_search_text = f"{author.split(' ')[-1]}" if self.search_last_name_only else author
-            book_search_text = book_name.split(":")[0] if self.search_shortened_title else book_name
+            author_search_text = SearchUtils.get_author_search_text(author, self.search_last_name_only)
+            book_search_text = SearchUtils.get_search_text(book_name, self.search_shortened_title)
             query_text = f"{author_search_text} - {book_search_text}"
             search_item = query_text.replace(" ", "+")
 
@@ -502,30 +537,21 @@ class DataHandler:
                         for row in rows:
                             try:
                                 cells = row.find_all("td")
-                                try:
-                                    author_string = cells[0].get_text().strip()
-                                except (AttributeError, IndexError):
-                                    author_string = ""
-                                try:
-                                    raw_title = cells[2].get_text().strip()
-                                    if "\nISBN" in raw_title:
-                                        title_string = raw_title.split("\nISBN")[0]
-                                    elif "\nASIN" in raw_title:
-                                        title_string = raw_title.split("\nASIN")[0]
-                                    else:
-                                        title_string = raw_title
-                                except:
-                                    title_string = ""
-                                try:
-                                    language = cells[3].get_text().strip() 
-                                except (AttributeError, IndexError): 
-                                    language = "english"
-                                try:
-                                    file_type = cells[4].get_text().strip().lower()
-                                except (AttributeError, IndexError):
-                                    file_type = ".epub"
-                                file_type_check = any(ft.replace(".", "").lower() in file_type for ft in self.preferred_extensions_fiction)
-                                language_check = language.lower() in req_item["allowed_languages"] or self.selected_language.lower() == "all"
+                                author_string = SearchUtils.extract_cell_text(cells, 0)
+                                
+                                raw_title = SearchUtils.extract_cell_text(cells, 2)
+                                if "\nISBN" in raw_title:
+                                    title_string = raw_title.split("\nISBN")[0]
+                                elif "\nASIN" in raw_title:
+                                    title_string = raw_title.split("\nASIN")[0]
+                                else:
+                                    title_string = raw_title
+                                    
+                                language = SearchUtils.extract_cell_text(cells, 3, "english")
+                                file_type = SearchUtils.extract_cell_text(cells, 4, ".epub").lower()
+                                
+                                file_type_check = SearchUtils.check_file_type_match(file_type, self.preferred_extensions_fiction)
+                                language_check = SearchUtils.check_language_match(language, req_item["allowed_languages"], self.selected_language)
 
                                 if file_type_check and language_check:
                                     author_name_match_ratio = self.compare_author_names(author, author_string)
@@ -573,8 +599,8 @@ class DataHandler:
             author = req_item["author"]
             book_name = req_item["book_name"]
 
-            author_search_text = f"{author.split(' ')[-1]}" if self.search_last_name_only else author
-            book_search_text = book_name.split(":")[0] if self.search_shortened_title else book_name
+            author_search_text = SearchUtils.get_author_search_text(author, self.search_last_name_only)
+            book_search_text = SearchUtils.get_search_text(book_name, self.search_shortened_title)
             query_text = f"{author_search_text} - {book_search_text}"
 
             search_item = urllib.parse.quote(query_text)
@@ -700,8 +726,8 @@ class DataHandler:
             author = req_item["author"]
             book_name = req_item["book_name"]
 
-            author_search_text = f"{author.split(' ')[-1]}" if self.search_last_name_only else author
-            book_search_text = book_name.split(":")[0] if self.search_shortened_title else book_name
+            author_search_text = SearchUtils.get_author_search_text(author, self.search_last_name_only)
+            book_search_text = SearchUtils.get_search_text(book_name, self.search_shortened_title)
             query_text = f"{author_search_text} - {book_search_text}"
 
             found_links = []
@@ -731,8 +757,8 @@ class DataHandler:
                         except (AttributeError, IndexError):
                             info = "english"
                             
-                        file_type_check = any(ft.replace(".", "").lower() in info.lower() for ft in self.preferred_extensions_fiction)
-                        language_check = any(l.lower() in info.lower() for l in req_item["allowed_languages"]) or self.selected_language.lower() == "all"
+                        file_type_check = SearchUtils.check_file_type_match(info, self.preferred_extensions_fiction)
+                        language_check = SearchUtils.check_language_match(info, req_item["allowed_languages"], self.selected_language)
 
                         if file_type_check and language_check:
                             author_name_match_ratio = self.compare_author_names(author, author_string)
@@ -761,24 +787,12 @@ class DataHandler:
             return found_links
     
     def compare_author_names(self, author, author_string):
-        try:
-            processed_author = self.preprocess(author)
-            processed_author_string = self.preprocess(author_string)
-            match_ratio = fuzz.ratio(processed_author, processed_author_string)
-
-        except Exception as e:
-            self.general_logger.error(f"Error Comparing Names: {str(e)}")
-            match_ratio = 0   
-    
-        finally:
-            return match_ratio
+        """Compare author names using the utility function"""
+        return SearchUtils.compare_author_names(author, author_string)
 
     def preprocess(self, name):
-        name_string = name.replace(".", " ").replace(":", " ").replace(",", " ")
-        new_string = "".join(e for e in name_string if e.isalnum() or e.isspace()).lower()
-        words = new_string.split()
-        words.sort()
-        return " ".join(words)
+        """Preprocess name using the utility function"""
+        return SearchUtils.preprocess_name(name)
 
     def download_from_mirror(self, req_item, link, base_url):
 
@@ -865,15 +879,9 @@ class DataHandler:
             if not file_type or file_type not in valid_book_extensions:
                 return "Wrong File Type"
 
-        # Sanitize author and book names for file system safety
-        cleaned_author_name = re.sub(r"\s{2,}", " ", re.sub(r'[\\*?:"<>|]', " - ", req_item["author"].replace("/", "+").strip()))
-        cleaned_book_name = re.sub(r"\s{2,}", " ", re.sub(r'[\\*?:"<>|]', " - ", req_item["book_name"].replace("/", "+").strip()))
-        
-        # Additional validation to prevent empty names
-        if not cleaned_author_name:
-            cleaned_author_name = "Unknown_Author"
-        if not cleaned_book_name:
-            cleaned_book_name = "Unknown_Book"
+        # Sanitize author and book names for file system safety using utility functions
+        cleaned_author_name = SearchUtils.clean_filename(req_item["author"])
+        cleaned_book_name = SearchUtils.clean_filename(req_item["book_name"])
 
         if self.selected_path_type == "file":
             file_path = os.path.join(self.download_folder, f"{cleaned_author_name} - {cleaned_book_name} ({req_item['year']}){file_type}")
