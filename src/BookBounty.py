@@ -25,22 +25,7 @@ from libgen_api import LibgenSearch
 import urllib.parse
 
 class DataHandler:
-    """
-    Main data handler class for BookBounty application.
-    
-    Manages interactions with Readarr API, searches for books on various sources
-    (LibGen, Anna's Archive), and handles downloading and processing of books.
-    
-    This class handles:
-    - Configuration management from environment variables and config files
-    - Readarr API integration for getting missing books
-    - Multiple book source searching (LibGen v1/v2, Anna's Archive)
-    - Download management with progress tracking
-    - Thread safety for concurrent operations
-    """
-    
     def __init__(self):
-        """Initialize the DataHandler with logging and default settings"""
         logging.basicConfig(level=logging.INFO, format="%(message)s")
         self.general_logger = logging.getLogger()
 
@@ -80,15 +65,6 @@ class DataHandler:
         self.load_environ_or_config_settings()
 
     def load_environ_or_config_settings(self):
-        """
-        Load configuration settings from environment variables and config files.
-        
-        Environment variables take precedence over config file settings.
-        If neither is available, default values are used.
-        
-        Includes validation for numeric settings and proper error handling
-        for invalid configuration values.
-        """
         # Use default settings as base
         default_settings = DEFAULT_SETTINGS.copy()
 
@@ -240,15 +216,6 @@ class DataHandler:
             self.general_logger.error(f"Scheduler Stopped")
 
     def get_wanted_list_from_readarr(self):
-        """
-        Retrieve the list of wanted/missing books from Readarr API.
-        
-        Fetches all missing books from Readarr, including author information
-        and metadata profiles to determine allowed languages for each book.
-        
-        Updates self.readarr_items with the retrieved data and emits updates
-        via socketio for real-time UI updates.
-        """
         try:
             self.general_logger.info(f"Accessing Readarr API")
             self.readarr_status = "busy"
@@ -772,11 +739,9 @@ class DataHandler:
             return found_links
     
     def compare_author_names(self, author, author_string):
-        """Compare author names using the utility function"""
         return SearchUtils.compare_author_names(author, author_string)
 
     def preprocess(self, name):
-        """Preprocess name using the utility function"""
         return SearchUtils.preprocess_name(name)
 
     def download_from_mirror(self, req_item, link, base_url):
@@ -1158,3 +1123,4 @@ def update_settings(data):
 
 if __name__ == "__main__":
     socketio.run(app, host="0.0.0.0", port=5000)
+
