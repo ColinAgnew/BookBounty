@@ -26,7 +26,7 @@ import urllib.parse
 
 class DataHandler:
     def __init__(self):
-        logging.basicConfig(level=logging.INFO, format=config.log_format)
+        logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
         self.general_logger = logging.getLogger()
 
         app_name_text = os.path.basename(__file__).replace(".py", "")
