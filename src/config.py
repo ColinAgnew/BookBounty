@@ -1,7 +1,4 @@
 #!/usr/bin/env python3
-"""
-Configuration constants and defaults for BookBounty application
-"""
 
 # Default configuration values
 DEFAULT_SETTINGS = {
