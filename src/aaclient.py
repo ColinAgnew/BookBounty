@@ -34,7 +34,7 @@ def file_search(torrent_info, desired_file):
             path = des.path # todo: tidy this up a bit
         else:
             priorities.append(0)
-    if idx == -1:
+    if fidx == -1:
         raise Exception("Destination file not found in torrent")
     return (fidx, size, path, priorities)
 
@@ -156,12 +156,16 @@ class aaclient:
             qb.torrents_start(hash)        
             self.logger.info(f"{save_filename} added to qBittorrent")
             is_succes = True       
-        except:
-            qb.torrents_delete(True, hash)        
-            self.logger.error(f"Error adding book. {t_path} removed from qBittorrent")
+        except Exception as e:
+            self.logger.error(f"Error adding book: {e}. {t_path} removed from qBittorrent")
+            try:
+                qb.torrents_delete(True, hash)
+            except:
+                pass  # Hash might not exist if creation failed
             is_succes = False
         finally:
-            os.remove(t_path) 
+            if os.path.exists(t_path):
+                os.remove(t_path) 
             
         
         return is_succes

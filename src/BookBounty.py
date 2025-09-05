@@ -9,7 +9,14 @@ import threading
 import concurrent.futures
 import iso639
 import requests
-from src.aaclient import aaclient
+try:
+    from src.aaclient import aaclient
+    from src.search_utils import SearchUtils
+    from src.config import DEFAULT_SETTINGS, DEFAULT_CONFIG_FOLDER, DEFAULT_DOWNLOAD_FOLDER
+except ImportError:
+    from aaclient import aaclient
+    from search_utils import SearchUtils
+    from config import DEFAULT_SETTINGS, DEFAULT_CONFIG_FOLDER, DEFAULT_DOWNLOAD_FOLDER
 from flask import Flask, render_template
 from flask_socketio import SocketIO
 from bs4 import BeautifulSoup
@@ -38,6 +45,7 @@ class DataHandler:
         self.libgen_status = "idle"
         self.libgen_stop_event = threading.Event()
         self.libgen_thread_lock = threading.Lock()
+        self.libgen_progress_lock = threading.Lock()
 
         self.libgen_in_progress_flag = False        
         self.is_using_libgen_api = False
@@ -45,8 +53,8 @@ class DataHandler:
         self.percent_completion = 0
 
         self.clients_connected_counter = 0
-        self.config_folder = "config"
-        self.download_folder = "downloads"
+        self.config_folder = DEFAULT_CONFIG_FOLDER
+        self.download_folder = DEFAULT_DOWNLOAD_FOLDER
         self.aa_client_type = ""
         self.aaclient = None
 
@@ -57,25 +65,8 @@ class DataHandler:
         self.load_environ_or_config_settings()
 
     def load_environ_or_config_settings(self):
-        # Defaults
-        default_settings = {
-            "readarr_address": "http://192.168.1.2:8787",
-            "readarr_api_key": "",
-            "request_timeout": 120.0,
-            "libgen_address_v1_list": ["http://libgen.is", "http://libgen.rs"],
-            "libgen_address_v2_list": ["http://libgen.li", "http://libgen.la"],
-            "thread_limit": 1,
-            "sleep_interval": 0,
-            "library_scan_on_completion": True,
-            "sync_schedule": [],
-            "minimum_match_ratio": 90,
-            "selected_language": "English",
-            "selected_path_type": "file",
-            "preferred_extensions_fiction": [".epub", ".mobi", ".azw3", ".djvu"],
-            "preferred_extensions_non_fiction": [".pdf", ".epub", ".mobi", ".azw3", ".djvu"],
-            "search_last_name_only": False,
-            "search_shortened_title": False,
-        }
+        # Use default settings as base
+        default_settings = DEFAULT_SETTINGS.copy()
 
         # Load settings from environmental variables (which take precedence) over the configuration file.
         self.readarr_address = os.environ.get("readarr_address", "")
@@ -85,9 +76,21 @@ class DataHandler:
         sync_schedule = os.environ.get("sync_schedule", "")
         self.sync_schedule = self.parse_sync_schedule(sync_schedule) if sync_schedule != "" else ""
         sleep_interval = os.environ.get("sleep_interval", "")
-        self.sleep_interval = float(sleep_interval) if sleep_interval else ""
+        try:
+            self.sleep_interval = float(sleep_interval) if sleep_interval else ""
+        except ValueError:
+            self.general_logger.warning(f"Invalid sleep_interval value: {sleep_interval}, using default")
+            self.sleep_interval = ""
+        
         minimum_match_ratio = os.environ.get("minimum_match_ratio", "")
-        self.minimum_match_ratio = float(minimum_match_ratio) if minimum_match_ratio else ""
+        try:
+            self.minimum_match_ratio = float(minimum_match_ratio) if minimum_match_ratio else ""
+            if self.minimum_match_ratio and (self.minimum_match_ratio < 0 or self.minimum_match_ratio > 100):
+                self.general_logger.warning(f"Invalid minimum_match_ratio value: {minimum_match_ratio}, should be 0-100")
+                self.minimum_match_ratio = ""
+        except ValueError:
+            self.general_logger.warning(f"Invalid minimum_match_ratio value: {minimum_match_ratio}, using default")
+            self.minimum_match_ratio = ""
         self.selected_path_type = os.environ.get("selected_path_type", "")
         library_scan_on_completion = os.environ.get("library_scan_on_completion", "")
         self.library_scan_on_completion = library_scan_on_completion.lower() == "true" if library_scan_on_completion != "" else ""
@@ -96,9 +99,24 @@ class DataHandler:
         search_shortened_title = os.environ.get("search_shortened_title", "")
         self.search_shortened_title = search_shortened_title.lower() == "true" if search_shortened_title != "" else ""
         request_timeout = os.environ.get("request_timeout", "")
-        self.request_timeout = float(request_timeout) if request_timeout else ""
+        try:
+            self.request_timeout = float(request_timeout) if request_timeout else ""
+            if self.request_timeout and self.request_timeout <= 0:
+                self.general_logger.warning(f"Invalid request_timeout value: {request_timeout}, should be > 0")
+                self.request_timeout = ""
+        except ValueError:
+            self.general_logger.warning(f"Invalid request_timeout value: {request_timeout}, using default")
+            self.request_timeout = ""
+            
         thread_limit = os.environ.get("thread_limit", "")
-        self.thread_limit = int(thread_limit) if thread_limit else ""
+        try:
+            self.thread_limit = int(thread_limit) if thread_limit else ""
+            if self.thread_limit and self.thread_limit <= 0:
+                self.general_logger.warning(f"Invalid thread_limit value: {thread_limit}, should be > 0")
+                self.thread_limit = ""
+        except ValueError:
+            self.general_logger.warning(f"Invalid thread_limit value: {thread_limit}, using default")
+            self.thread_limit = ""
         self.selected_language = os.environ.get("selected_language", "")
         preferred_extensions_fiction = os.environ.get("preferred_extensions_fiction", "")
         self.preferred_extensions_fiction = preferred_extensions_fiction.split(",") if preferred_extensions_fiction else ""
@@ -302,12 +320,13 @@ class DataHandler:
                 else:
                     self.readarr_items[i]["checked"] = False
 
-            if self.libgen_in_progress_flag == False:
-                self.index = 0
-                self.libgen_in_progress_flag = True
-                thread = threading.Thread(target=self.master_queue, name="Queue_Thread")
-                thread.daemon = True
-                thread.start()
+            with self.libgen_progress_lock:
+                if self.libgen_in_progress_flag == False:
+                    self.index = 0
+                    self.libgen_in_progress_flag = True
+                    thread = threading.Thread(target=self.master_queue, name="Queue_Thread")
+                    thread.daemon = True
+                    thread.start()
 
         except Exception as e:
             self.general_logger.error(f"Error Adding Items to Download: {str(e)}")
@@ -333,11 +352,13 @@ class DataHandler:
             if self.libgen_stop_event.is_set():
                 self.libgen_status = "stopped"
                 self.general_logger.info("Downloading Stopped")
-                self.libgen_in_progress_flag = False
+                with self.libgen_progress_lock:
+                    self.libgen_in_progress_flag = False
             else:
                 self.libgen_status = "complete"
                 self.general_logger.info("Downloading Finished")
-                self.libgen_in_progress_flag = False
+                with self.libgen_progress_lock:
+                    self.libgen_in_progress_flag = False
                 if self.library_scan_on_completion:
                     self.trigger_readarr_scan()
 
@@ -448,8 +469,8 @@ class DataHandler:
             author = req_item["author"]
             book_name = req_item["book_name"]
 
-            author_search_text = f"{author.split(' ')[-1]}" if self.search_last_name_only else author
-            book_search_text = book_name.split(":")[0] if self.search_shortened_title else book_name
+            author_search_text = SearchUtils.get_author_search_text(author, self.search_last_name_only)
+            book_search_text = SearchUtils.get_search_text(book_name, self.search_shortened_title)
             query_text = f"{author_search_text} - {book_search_text}"
             search_item = query_text.replace(" ", "+")
 
@@ -468,30 +489,21 @@ class DataHandler:
                         for row in rows:
                             try:
                                 cells = row.find_all("td")
-                                try:
-                                    author_string = cells[0].get_text().strip()
-                                except:
-                                    author_string = ""
-                                try:
-                                    raw_title = cells[2].get_text().strip()
-                                    if "\nISBN" in raw_title:
-                                        title_string = raw_title.split("\nISBN")[0]
-                                    elif "\nASIN" in raw_title:
-                                        title_string = raw_title.split("\nASIN")[0]
-                                    else:
-                                        title_string = raw_title
-                                except:
-                                    title_string = ""
-                                try:
-                                    language = cells[3].get_text().strip() 
-                                except: 
-                                    language = "english"
-                                try:
-                                    file_type = cells[4].get_text().strip().lower()
-                                except:
-                                    file_type = ".epub"
-                                file_type_check = any(ft.replace(".", "").lower() in file_type for ft in self.preferred_extensions_fiction)
-                                language_check = language.lower() in req_item["allowed_languages"] or self.selected_language.lower() == "all"
+                                author_string = SearchUtils.extract_cell_text(cells, 0)
+                                
+                                raw_title = SearchUtils.extract_cell_text(cells, 2)
+                                if "\nISBN" in raw_title:
+                                    title_string = raw_title.split("\nISBN")[0]
+                                elif "\nASIN" in raw_title:
+                                    title_string = raw_title.split("\nASIN")[0]
+                                else:
+                                    title_string = raw_title
+                                    
+                                language = SearchUtils.extract_cell_text(cells, 3, "english")
+                                file_type = SearchUtils.extract_cell_text(cells, 4, ".epub").lower()
+                                
+                                file_type_check = SearchUtils.check_file_type_match(file_type, self.preferred_extensions_fiction)
+                                language_check = SearchUtils.check_language_match(language, req_item["allowed_languages"], self.selected_language)
 
                                 if file_type_check and language_check:
                                     author_name_match_ratio = self.compare_author_names(author, author_string)
@@ -504,7 +516,7 @@ class DataHandler:
                                                 href = link["href"]
                                                 if href.startswith("http://") or href.startswith("https://"):
                                                     found_links.append(href)
-                            except:
+                            except (AttributeError, IndexError, ValueError):
                                 pass
 
                         if found_links:
@@ -513,12 +525,12 @@ class DataHandler:
 
                         if not found_links:
                             req_item["status"] = "No Link Found"
+                            self.general_logger.info(f'Book:{req_item["author"]} - {req_item["book_name"]} not found on {address}')
                         socketio.emit("libgen_update", {"status": "Success", "data": self.libgen_items, "percent_completion": self.percent_completion})
                     else:
+                        self.general_logger.error("Libgen Connection Error: " + str(response.status_code) + " Data: " + response.text)
+                        req_item["status"] = "Libgen Error"
                         socketio.emit("libgen_update", {"status": "Error", "data": self.libgen_items, "percent_completion": self.percent_completion})
-                    self.general_logger.error("Libgen Connection Error: " + str(response.status_code) + " Data: " + response.text)
-                    req_item["status"] = "Libgen Error"
-                    socketio.emit("libgen_update", {"status": self.libgen_status, "data": self.libgen_items, "percent_completion": self.percent_completion})
 
                 except Exception as e:
                     self.general_logger.warning(f"Failed with {address}: {e}")
@@ -529,7 +541,7 @@ class DataHandler:
             raise Exception(f"Error Searching libgen: {str(e)}")
 
         finally:
-            self.general_logger.info(f"Links Found for Book:{req_item["author"]} - {req_item["book_name"]} on {found_base_url}")
+            self.general_logger.info(f'Links Found for Book: {req_item["author"]} - {req_item["book_name"]} on {found_base_url}')
             return found_base_url, found_links
 
     def _link_finder_libgen_v2(self, req_item):
@@ -539,8 +551,8 @@ class DataHandler:
             author = req_item["author"]
             book_name = req_item["book_name"]
 
-            author_search_text = f"{author.split(' ')[-1]}" if self.search_last_name_only else author
-            book_search_text = book_name.split(":")[0] if self.search_shortened_title else book_name
+            author_search_text = SearchUtils.get_author_search_text(author, self.search_last_name_only)
+            book_search_text = SearchUtils.get_search_text(book_name, self.search_shortened_title)
             query_text = f"{author_search_text} - {book_search_text}"
 
             search_item = urllib.parse.quote(query_text)
@@ -568,7 +580,7 @@ class DataHandler:
                                 cells = row.find_all("td")
                                 try:
                                     author_string = cells[1].get_text().strip()
-                                except:
+                                except (AttributeError, IndexError):
                                     author_string = ""
                                 try:
                                     a_tags = cells[0].find_all("a")
@@ -585,16 +597,16 @@ class DataHandler:
                                         title_string = raw_title.split("\nASIN")[0]
                                     else:
                                         title_string = raw_title
-                                except:
+                                except (AttributeError, IndexError):
                                     title_string = ""
 
                                 try:
                                     language = cells[4].get_text().strip()
-                                except:
+                                except (AttributeError, IndexError):
                                     language = "english"
                                 try:
                                     file_type = cells[7].get_text().strip().lower()
-                                except:
+                                except (AttributeError, IndexError):
                                     file_type = ".epub"
 
                                 file_type_check = any(ft.replace(".", "").lower() in file_type for ft in self.preferred_extensions_fiction)
@@ -629,7 +641,7 @@ class DataHandler:
                                             elif href.startswith("/"):
                                                 found_links.append(f"{base_url}" + href)
 
-                            except:
+                            except (AttributeError, IndexError, ValueError):
                                 pass
 
                         if found_links:
@@ -655,7 +667,7 @@ class DataHandler:
             raise Exception(f"Error Searching libgen v2 list: {str(e)}") 
 
         finally:
-            self.general_logger.info(f"Links Found for Book:{req_item["author"]} - {req_item["book_name"]} on {found_base_url}")
+            self.general_logger.info(f'Links Found for Book: {req_item["author"]} - {req_item["book_name"]} on {found_base_url}')
             return found_base_url, found_links
 
     def _link_finder_annas_archive(self, req_item):
@@ -666,8 +678,8 @@ class DataHandler:
             author = req_item["author"]
             book_name = req_item["book_name"]
 
-            author_search_text = f"{author.split(' ')[-1]}" if self.search_last_name_only else author
-            book_search_text = book_name.split(":")[0] if self.search_shortened_title else book_name
+            author_search_text = SearchUtils.get_author_search_text(author, self.search_last_name_only)
+            book_search_text = SearchUtils.get_search_text(book_name, self.search_shortened_title)
             query_text = f"{author_search_text} - {book_search_text}"
 
             found_links = []
@@ -683,22 +695,22 @@ class DataHandler:
                     try:
                         try:
                             title_string = potential_book.find("h3").get_text().strip()
-                        except:
+                        except (AttributeError, IndexError):
                             title_string = ""
                             
                         try:
                             author_string = potential_book.find("div", {"class" :"italic"}).get_text().strip()
-                        except:
+                        except (AttributeError, IndexError):
                             author_string = ""
                         
                         try:
                             # contains language and file type
                             info = potential_book.find("div", {"class" :"text-gray-500"}).get_text().strip()
-                        except:
+                        except (AttributeError, IndexError):
                             info = "english"
                             
-                        file_type_check = any(ft.replace(".", "").lower() in info.lower() for ft in self.preferred_extensions_fiction)
-                        language_check = any(l.lower() in info.lower() for l in req_item["allowed_languages"]) or self.selected_language.lower() == "all"
+                        file_type_check = SearchUtils.check_file_type_match(info, self.preferred_extensions_fiction)
+                        language_check = SearchUtils.check_language_match(info, req_item["allowed_languages"], self.selected_language)
 
                         if file_type_check and language_check:
                             author_name_match_ratio = self.compare_author_names(author, author_string)
@@ -707,7 +719,7 @@ class DataHandler:
                                 href = potential_book["href"]
                                 if href.startswith("/md5"):
                                     found_links.append(f"http://annas-archive.org{href}")
-                    except:
+                    except (AttributeError, IndexError, KeyError):
                         pass
 
                 if not found_links:
@@ -727,24 +739,10 @@ class DataHandler:
             return found_links
     
     def compare_author_names(self, author, author_string):
-        try:
-            processed_author = self.preprocess(author)
-            processed_author_string = self.preprocess(author_string)
-            match_ratio = fuzz.ratio(processed_author, processed_author_string)
-
-        except Exception as e:
-            self.general_logger.error(f"Error Comparing Names: {str(e)}")
-            match_ratio = 0   
-    
-        finally:
-            return match_ratio
+        return SearchUtils.compare_author_names(author, author_string)
 
     def preprocess(self, name):
-        name_string = name.replace(".", " ").replace(":", " ").replace(",", " ")
-        new_string = "".join(e for e in name_string if e.isalnum() or e.isspace()).lower()
-        words = new_string.split()
-        words.sort()
-        return " ".join(words)
+        return SearchUtils.preprocess_name(name)
 
     def download_from_mirror(self, req_item, link, base_url):
 
@@ -798,13 +796,13 @@ class DataHandler:
                 else:
                     return str(response.status_code) + " : " + response.text
             
-            except:
+            except (requests.RequestException, AttributeError, IndexError):
                 return "Dead Link"
 
             try:
                 file_type = os.path.splitext(link_url)[1]
 
-            except:
+            except (AttributeError, ValueError):
                 file_type = None
                 self.general_logger.info("File extension not in url or invalid, checking link content...")
 
@@ -831,8 +829,9 @@ class DataHandler:
             if not file_type or file_type not in valid_book_extensions:
                 return "Wrong File Type"
 
-        cleaned_author_name = re.sub(r"\s{2,}", " ", re.sub(r'[\\*?:"<>|]', " - ", req_item["author"].replace("/", "+")))
-        cleaned_book_name = re.sub(r"\s{2,}", " ", re.sub(r'[\\*?:"<>|]', " - ", req_item["book_name"].replace("/", "+")))
+        # Sanitize author and book names for file system safety using utility functions
+        cleaned_author_name = SearchUtils.clean_filename(req_item["author"])
+        cleaned_book_name = SearchUtils.clean_filename(req_item["book_name"])
 
         if self.selected_path_type == "file":
             file_path = os.path.join(self.download_folder, f"{cleaned_author_name} - {cleaned_book_name} ({req_item['year']}){file_type}")
@@ -970,12 +969,32 @@ class DataHandler:
 
     def update_settings(self, data):
         try:
-            self.readarr_address = data["readarr_address"]
-            self.readarr_api_key = data["readarr_api_key"]
-            self.sleep_interval = float(data["sleep_interval"])
-            self.sync_schedule = self.parse_sync_schedule(data["sync_schedule"])
-            self.minimum_match_ratio = float(data["minimum_match_ratio"])
+            self.readarr_address = data.get("readarr_address", "")
+            self.readarr_api_key = data.get("readarr_api_key", "")
+            
+            # Validate numeric inputs
+            try:
+                sleep_interval = data.get("sleep_interval", "0")
+                self.sleep_interval = float(sleep_interval) if sleep_interval else 0
+                if self.sleep_interval < 0:
+                    self.general_logger.warning("Sleep interval cannot be negative, setting to 0")
+                    self.sleep_interval = 0
+            except (ValueError, TypeError):
+                self.general_logger.error(f"Invalid sleep_interval: {data.get('sleep_interval')}")
+                
+            try:
+                minimum_match_ratio = data.get("minimum_match_ratio", "90")
+                self.minimum_match_ratio = float(minimum_match_ratio) if minimum_match_ratio else 90
+                if not (0 <= self.minimum_match_ratio <= 100):
+                    self.general_logger.warning("Match ratio must be between 0-100, setting to 90")
+                    self.minimum_match_ratio = 90
+            except (ValueError, TypeError):
+                self.general_logger.error(f"Invalid minimum_match_ratio: {data.get('minimum_match_ratio')}")
+                
+            self.sync_schedule = self.parse_sync_schedule(data.get("sync_schedule", ""))
 
+        except KeyError as e:
+            self.general_logger.error(f"Missing required setting: {str(e)}")
         except Exception as e:
             self.general_logger.error(f"Failed to update settings: {str(e)}")
 
@@ -1104,3 +1123,4 @@ def update_settings(data):
 
 if __name__ == "__main__":
     socketio.run(app, host="0.0.0.0", port=5000)
+
