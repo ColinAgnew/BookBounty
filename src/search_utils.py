@@ -49,8 +49,8 @@ class SearchUtils:
     
     @staticmethod
     def get_search_text(title, use_shortened=False):
-         if not title:
-            return ""
+        if not title:
+           return ""
         
         return title.split(":")[0] if use_shortened and ":" in title else title
     

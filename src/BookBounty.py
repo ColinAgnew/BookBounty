@@ -193,6 +193,7 @@ class DataHandler:
     def schedule_checker(self):
         try:
             while True:
+                if self.libgen_stop_event.is_set(): return
                 current_hour = time.localtime().tm_hour
                 within_time_window = any(t == current_hour for t in self.sync_schedule)
 
@@ -372,14 +373,22 @@ class DataHandler:
             socketio.emit("new_toast_msg", {"title": "End of Session", "message": f"Downloading {self.libgen_status.capitalize()}"})
 
     def find_link_and_download(self, req_item):
+        if self.libgen_stop_event.is_set():
+            return
         finder_functions = [
-            self._link_finder_libgen_v2,
             self._link_finder_annas_archive,
+            self._link_finder_libgen_v2,
             self._link_finder_libgen_api, 
             self._link_finder_libgen_v1, 
             ]
         
+
+
+        original_status = req_item['status']
+
         for func in finder_functions:
+            if self.libgen_stop_event.is_set():
+                return
             try:                
                 self.is_using_libgen_api = False
                 req_item["status"] = "Searching..."
@@ -399,6 +408,8 @@ class DataHandler:
                     req_item["status"] = f"Link Found ({base_url})" if base_url else "Link Found"
                     socketio.emit("libgen_update", {"status": self.libgen_status, "data": self.libgen_items, "percent_completion": self.percent_completion})
                     for link in links:
+                        if self.libgen_stop_event.is_set():
+                            return
                         self.general_logger.info(f'Attempting Download from Link: {link}')
                         ret = self.download_from_mirror(req_item, link, base_url=base_url)
                         if ret == "Success":
@@ -418,6 +429,11 @@ class DataHandler:
             except Exception as e:
                 self.general_logger.error(f"Error Downloading: {str(e)}")
                 req_item["status"] = "Download Error"
+
+        # After trying all finders, if status is still intermediate, set to Not Found
+        intermediate_statuses = ["Searching...", "No Link Found", "Queued", original_status]
+        if req_item["status"] in intermediate_statuses:
+            req_item["status"] = "Not Found"
 
         self.index += 1
         self.percent_completion = 100 * (self.index / len(self.libgen_items)) if self.libgen_items else 0
@@ -475,14 +491,16 @@ class DataHandler:
             search_item = query_text.replace(" ", "+")
 
             for address in self.libgen_address_v1_list:
+                if self.libgen_stop_event.is_set():
+                    return found_base_url, found_links
                 try:
                     self.general_logger.info(
                         f'Searching {address} for Book: {req_item["author"]} - {req_item["book_name"]} '
                         f'- Allowed Languages: {",".join(req_item["allowed_languages"])}'
                     )
                     url = f"{address}/fiction/?q={search_item}"
-                    response = requests.get(url, timeout=self.request_timeout)
-                    if response.status_code == 200:
+                    response = self.stoppable_request('get', url, timeout=self.request_timeout)
+                    if response and response.status_code == 200:
                         soup = BeautifulSoup(response.text, "html.parser")
                         table = soup.find("tbody")
                         rows = table.find_all("tr") if table else []
@@ -527,8 +545,8 @@ class DataHandler:
                             req_item["status"] = "No Link Found"
                             self.general_logger.info(f'Book:{req_item["author"]} - {req_item["book_name"]} not found on {address}')
                         socketio.emit("libgen_update", {"status": "Success", "data": self.libgen_items, "percent_completion": self.percent_completion})
-                    else:
-                        self.general_logger.error("Libgen Connection Error: " + str(response.status_code) + " Data: " + response.text)
+                    elif response:
+                        self.general_logger.warning(f"Libgen mirror connection error for {address}: {response.status_code}")
                         req_item["status"] = "Libgen Error"
                         socketio.emit("libgen_update", {"status": "Error", "data": self.libgen_items, "percent_completion": self.percent_completion})
 
@@ -558,6 +576,8 @@ class DataHandler:
             search_item = urllib.parse.quote(query_text)
 
             for base_url in self.libgen_address_v2_list:
+                if self.libgen_stop_event.is_set():
+                    return found_base_url, found_links
                 try:
                     self.general_logger.info(
                         f'Searching {base_url} for Book: {req_item["author"]} - {req_item["book_name"]} - Allowed Languages: {",".join(req_item["allowed_languages"])}'
@@ -566,8 +586,8 @@ class DataHandler:
                     url = f"{base_url}/index.php?req={search_item}"
                     self.general_logger.info(f'Search Url: {url} ')
 
-                    response = requests.get(url, timeout=self.request_timeout)
-                    if response.status_code == 200:
+                    response = self.stoppable_request('get', url, timeout=self.request_timeout)
+                    if response and response.status_code == 200:
                         soup = BeautifulSoup(response.text, "html.parser")
                         table = soup.find("tbody")
                         if table:
@@ -653,8 +673,8 @@ class DataHandler:
                             self.general_logger.info(f'Book:{req_item["author"]} - {req_item["book_name"]} not found on {base_url}')
                         socketio.emit("libgen_update", {"status": "Success", "data": self.libgen_items, "percent_completion": self.percent_completion})
 
-                    else:
-                        self.general_logger.error("Libgen Connection Error: " + str(response.status_code) + " Data: " + response.text)
+                    elif response:
+                        self.general_logger.warning(f"Libgen mirror connection error for {base_url}: {response.status_code}")
                         req_item["status"] = "Libgen Error"
                         socketio.emit("libgen_update", {"status": self.libgen_status, "data": self.libgen_items, "percent_completion": self.percent_completion})
 
@@ -673,6 +693,8 @@ class DataHandler:
     def _link_finder_annas_archive(self, req_item):
         if (self.aaclient is None):
             return []
+        found_links = []
+
         try:
             self.general_logger.warning(f'Searching annas-archive for Book: {req_item["author"]} - {req_item["book_name"]} - Allowed Languages: {",".join(req_item["allowed_languages"])}')
             author = req_item["author"]
@@ -682,52 +704,77 @@ class DataHandler:
             book_search_text = SearchUtils.get_search_text(book_name, self.search_shortened_title)
             query_text = f"{author_search_text} - {book_search_text}"
 
-            found_links = []
             search_item = query_text.replace(" ", "+")
             url = f"http://annas-archive.org/search?index=&q={search_item}"
-            response = requests.get(url, timeout=self.request_timeout)
-            if response.status_code == 200:
+            self.general_logger.info(f'Search Url: {url} ')
+
+            response = self.stoppable_request('get', url, timeout=self.request_timeout)
+            if response and response.status_code == 200:
                 parsetext = response.text.replace(("<!--"), '').replace("-->", '')
                 soup = BeautifulSoup(parsetext, "html.parser")
-                books = soup.find("div", {"id":"aarecord-list"})
-                rows = books.select("a")
-                for potential_book in rows:
-                    try:
-                        try:
-                            title_string = potential_book.find("h3").get_text().strip()
-                        except (AttributeError, IndexError):
-                            title_string = ""
-                            
-                        try:
-                            author_string = potential_book.find("div", {"class" :"italic"}).get_text().strip()
-                        except (AttributeError, IndexError):
-                            author_string = ""
-                        
-                        try:
-                            # contains language and file type
-                            info = potential_book.find("div", {"class" :"text-gray-500"}).get_text().strip()
-                        except (AttributeError, IndexError):
-                            info = "english"
-                            
-                        file_type_check = SearchUtils.check_file_type_match(info, self.preferred_extensions_fiction)
-                        language_check = SearchUtils.check_language_match(info, req_item["allowed_languages"], self.selected_language)
 
-                        if file_type_check and language_check:
-                            author_name_match_ratio = self.compare_author_names(author, author_string)
-                            book_name_match_ratio = fuzz.ratio(title_string, book_search_text)
-                            if author_name_match_ratio >= self.minimum_match_ratio and book_name_match_ratio >= self.minimum_match_ratio:
-                                href = potential_book["href"]
-                                if href.startswith("/md5"):
-                                    found_links.append(f"http://annas-archive.org{href}")
-                    except (AttributeError, IndexError, KeyError):
-                        pass
+                books = soup.find("div", {"class": "js-aarecord-list-outer"})
+                if books:
+                    rows = books.select("div.flex")
+                    for potential_book in rows:
+                        try:
+                            # Title
+                            title_elem = potential_book.find("a", {"class": lambda v: v and "text-lg" in v})
+                            title_string = title_elem.get_text(strip=True) if title_elem else ""
+                            self.general_logger.info(f'Title String: {title_string} ')
+
+                            # Author (look for user-edit icon link)
+                            author_elem = potential_book.find("a", {"href": lambda v: v and v.startswith("/search?q=")})
+                            author_string = author_elem.get_text(strip=True) if author_elem else ""
+                            self.general_logger.info(f'Author String: {author_string} ')
+
+                            # Info (language + file type)
+                            info_elem = potential_book.find("div", {"class": lambda v: v and "text-gray-800" in v})
+                            info_raw = info_elem.get_text(strip=True) if info_elem else "english"
+                            self.general_logger.info(f'Raw Info String: {info_raw} ')
+
+                            info_parts = [p.strip() for p in info_raw.split("·")]
+
+                            language_part = info_parts[0].split()[0].lower() if info_parts else "english"   
+                            filetype_part = info_parts[1].upper() if len(info_parts) > 1 else ""            
+
+                            self.general_logger.info(f'Parsed Language: {language_part} | Parsed Filetype: {filetype_part}')
+
+
+
+                            file_type_check = SearchUtils.check_file_type_match(filetype_part, self.preferred_extensions_fiction)
+                            language_check = SearchUtils.check_language_match(language_part, req_item["allowed_languages"], self.selected_language)
+
+
+                            if file_type_check and language_check:
+                                author_name_match_ratio = self.compare_author_names(author, author_string)
+                                book_name_match_ratio = fuzz.ratio(title_string, book_search_text)
+                                self.general_logger.info(f'Author Match: {author_name_match_ratio} - Book Match: {book_name_match_ratio} ')
+
+                                if author_name_match_ratio >= self.minimum_match_ratio and book_name_match_ratio >= self.minimum_match_ratio:
+                                    href_elem = potential_book.find("a", href=True)
+                                    self.general_logger.info(f'Href Element: {href_elem} ')
+
+                                    if href_elem and href_elem["href"].startswith("/md5"):
+                                        found_links.append(f"https://annas-archive.org{href_elem['href']}")
+                                        self.general_logger.info(f'Found Link: {found_links[-1]} ')
+
+                        except Exception as e:
+                            self.general_logger.debug(f"Skipping result due to parse error: {e}")
+
+                else:
+                    self.general_logger.warning("Could not find 'results' div in Anna's Archive response. Page layout may have changed.")
+                    req_item["status"] = "Search Failed"
+
 
                 if not found_links:
                     req_item["status"] = "No Link Found"
+
                 socketio.emit("libgen_update", {"status": "Success", "data": self.libgen_items, "percent_completion": self.percent_completion})
-            else:
+
+            elif response:
                 socketio.emit("libgen_update", {"status": "Error", "data": self.libgen_items, "percent_completion": self.percent_completion})
-                self.general_logger.error("Libgen Connection Error: " + str(response.status_code) + " Data: " + response.text)
+                self.general_logger.warning(f"Annas Archive connection error: {response.status_code}")
                 req_item["status"] = "Libgen Error"
                 socketio.emit("libgen_update", {"status": self.libgen_status, "data": self.libgen_items, "percent_completion": self.percent_completion})
         
@@ -738,6 +785,35 @@ class DataHandler:
         finally:
             return found_links
     
+    def stoppable_request(self, method, url, timeout, **kwargs):
+        start_time = time.time()
+        while time.time() - start_time < timeout:
+            if self.libgen_stop_event.is_set():
+                self.general_logger.info(f"Request to {url} cancelled by stop event.")
+                return None
+            try:
+                # Use a short, dynamic timeout for the actual request attempt
+                remaining_timeout = timeout - (time.time() - start_time)
+                if remaining_timeout <= 0:
+                    break
+                
+                # The timeout for each individual attempt is the smaller of 5s or the remaining time
+                attempt_timeout = min(10.0, remaining_timeout)
+                
+                response = requests.request(method, url, timeout=attempt_timeout, **kwargs)
+                return response
+            except requests.exceptions.Timeout:
+                # This is expected if the server is slow, we'll loop and try again
+                self.general_logger.info(f"Request to {url} timed out, retrying...")
+                continue
+            except requests.exceptions.RequestException as e:
+                # For other request errors, log it and stop trying
+                self.general_logger.error(f"Request to {url} failed: {e}")
+                return None
+        # If we exit the loop, the total timeout has been exceeded
+        self.general_logger.warning(f"Request to {url} failed after multiple retries within the total timeout.")
+        return None
+
     def compare_author_names(self, author, author_string):
         return SearchUtils.compare_author_names(author, author_string)
 
@@ -745,11 +821,13 @@ class DataHandler:
         return SearchUtils.preprocess_name(name)
 
     def download_from_mirror(self, req_item, link, base_url):
-
+        if self.libgen_stop_event.is_set():
+            return "Cancelled"
         req_item["status"] = "Checking Link"
         socketio.emit("libgen_update", {"status": self.libgen_status, "data": self.libgen_items, "percent_completion": self.percent_completion})
         
         isAnna = False
+        download_response = None
         if "annas-archive" in link:
             isAnna = True
             file_type = "" # determined in aaclient.py  
@@ -763,8 +841,8 @@ class DataHandler:
         else:
             try:
                 valid_book_extensions = self.preferred_extensions_fiction
-                response = requests.get(link, timeout=self.request_timeout)
-                if response.status_code == 200:
+                response = self.stoppable_request('get', link, timeout=self.request_timeout)
+                if response and response.status_code == 200:
                     soup = BeautifulSoup(response.text, "html.parser")
                     download_div = soup.find("div", id="download")
 
@@ -793,8 +871,10 @@ class DataHandler:
                         else:
                             return "No Link Available"
 
-                else:
+                elif response:
                     return str(response.status_code) + " : " + response.text
+                else:
+                    return "Dead Link"
             
             except (requests.RequestException, AttributeError, IndexError):
                 return "Dead Link"
@@ -808,13 +888,16 @@ class DataHandler:
 
         if not isAnna:
             try:
-                download_response = requests.get(link_url, stream=True)
+                download_response = self.stoppable_request('get', link_url, stream=True, timeout=self.request_timeout)
 
             except Exception as e:
                 req_item["status"] = "Link Failed"
                 socketio.emit("libgen_update", {"status": self.libgen_status, "data": self.libgen_items, "percent_completion": self.percent_completion})
                 self.general_logger.error(f"Exception {str(e)} thrown by: {link_url}")
                 return "Link Failed"
+
+            if not download_response:
+                 return "Link Failed"
 
             if file_type == None or ".php" in file_type:
                 link_file_name_text = download_response.headers.get("content-disposition")
@@ -890,7 +973,7 @@ class DataHandler:
             except Exception as e:
                 self.general_logger.error(f"Error downloading from Anna: {str(e)}")
                 
-        elif download_response.status_code == 200:
+        elif download_response and download_response.status_code == 200:
             req_item["status"] = "Downloading"
             total_size = int(download_response.headers.get("content-length", 0))
             downloaded_size = 0
@@ -1123,5 +1206,3 @@ def update_settings(data):
 
 if __name__ == "__main__":
     socketio.run(app, host="0.0.0.0", port=5000)
-
-
