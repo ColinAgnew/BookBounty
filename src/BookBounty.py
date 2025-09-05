@@ -12,11 +12,11 @@ import requests
 try:
     from src.aaclient import aaclient
     from src.search_utils import SearchUtils
-    from src.config import DEFAULT_SETTINGS, DEFAULT_CONFIG_FOLDER, DEFAULT_DOWNLOAD_FOLDER
+    from src.config import DEFAULT_SETTINGS, DEFAULT_CONFIG_FOLDER, DEFAULT_DOWNLOAD_FOLDER, LOG_FORMAT
 except ImportError:
     from aaclient import aaclient
     from search_utils import SearchUtils
-    from config import DEFAULT_SETTINGS, DEFAULT_CONFIG_FOLDER, DEFAULT_DOWNLOAD_FOLDER
+    from config import DEFAULT_SETTINGS, DEFAULT_CONFIG_FOLDER, DEFAULT_DOWNLOAD_FOLDER, LOG_FORMAT
 from flask import Flask, render_template
 from flask_socketio import SocketIO
 from bs4 import BeautifulSoup
@@ -26,7 +26,7 @@ import urllib.parse
 
 class DataHandler:
     def __init__(self):
-        logging.basicConfig(level=logging.INFO, format="%(message)s")
+        logging.basicConfig(level=logging.INFO, format=config.log_format)
         self.general_logger = logging.getLogger()
 
         app_name_text = os.path.basename(__file__).replace(".py", "")
@@ -1123,4 +1123,5 @@ def update_settings(data):
 
 if __name__ == "__main__":
     socketio.run(app, host="0.0.0.0", port=5000)
+
 
