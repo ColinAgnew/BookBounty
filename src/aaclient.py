@@ -9,12 +9,12 @@ import libtorrent as lt
 import qbittorrentapi
 
 
-book_xpaths = {"collection": "/html/body/main/div[3]/ul/li[last()]/div/a[1]",
-               "torrent": "/html/body/main/div[3]/ul/li[last()]/div/a[2]/text()",
-               "torrent_url": "/html/body/main/div[3]/ul/li[last()]/div/a[2]/@href",
-               "filename_within_torrent": "/html/body/main/div[3]/ul/li[last()]/div/text()[3]",
-               "title": "/html/body/main/div[1]/div[3]/text()",
-               "extension": "/html/body/main/div[1]/div[2]/text()"}
+book_xpaths = {
+    "collection_div": "//div[contains(@class, 'text-sm') and contains(@class, 'text-gray-500')]",
+    "torrent_url": "//div[contains(@class, 'text-sm')]/a[contains(@href, '.torrent')]/@href",
+    "torrent_name": "//div[contains(@class, 'text-sm')]/a[contains(@href, '.torrent')]/text()",
+    "filename_within_torrent": "//div[contains(@class, 'text-sm')]/text()[contains(., '→') and contains(., 'file')]"
+}
 
 replace_chars = str.maketrans(dict.fromkeys(''.join([" /"]), '.') | dict.fromkeys(''.join([":;"]), None))
 
@@ -50,20 +50,39 @@ def check_torrent_completion(ses, idx):
 
     return False
 
-def get_torrent_from_listing(url, save_as, guess_extension):
-    page = re.get(url)
-    tree = html.fromstring(page.content)
-
-    fname = tree.xpath(book_xpaths["filename_within_torrent"])[0].split('“', 1)[1][:-1]
-    t_url = tree.xpath(book_xpaths["torrent_url"])[0]
-    torrent = tree.xpath(book_xpaths["torrent"])[0][:-1][1:]
-
-    extension = tree.xpath(book_xpaths["extension"])[0].split(', ')[1]
-
-    if guess_extension:
-        save_as += extension
-    aa = url.split("/")
-    return (f"{aa[0]}//{aa[2]}{str(t_url)}", torrent, fname, save_as)
+def get_torrent_from_listing(url, save_as, guess_extension, logger):
+    try:
+        page = re.get(url)
+        tree = html.fromstring(page.content)
+        
+        t_url_elements = tree.xpath(book_xpaths["torrent_url"])
+        if not t_url_elements:
+            raise ValueError("Torrent URL not found")
+        t_url = t_url_elements[0]
+        
+        torrent_elements = tree.xpath(book_xpaths["torrent_name"])
+        if not torrent_elements:
+            raise ValueError("Torrent name not found")
+        torrent = torrent_elements[0]
+        
+        filename = tree.xpath(book_xpaths["filename_within_torrent"])[0].split('“', 1)[1][:-1]
+        if not filename:
+            raise ValueError("Could not extract filename from text")
+        
+        if guess_extension:
+            extension = os.path.splitext(filename)[1]
+            if extension:
+                save_as += extension
+        
+        aa = url.split("/")
+        base_url = f"{aa[0]}//{aa[2]}"
+        
+        return (f"{base_url}{t_url}", torrent, filename, save_as)
+        
+    except Exception as e:
+        if 'page' in locals():
+            logger.warning(f"Page content sample: {page.text[:500]}...")
+        raise Exception(f"Error parsing listing page: {e}")
 
 def qbitt_file_search(torrent_files, desired_file):
     for idx, des in enumerate(torrent_files):
@@ -107,19 +126,18 @@ class aaclient:
 
 
     def dl_torrent_from_listing(self, url, save_as):
-        self.logger.info(f"Getting torrent listing from: {url}")
-        t_url, torrent, fname, save_as = get_torrent_from_listing(url, save_as, True)
-        t = re.get(t_url, allow_redirects=True, stream=True)
-        path = f"./{torrent}"
+        try:
+            t_url, torrent, fname, save_as = get_torrent_from_listing(url, save_as, True, self.logger)
+            t = re.get(t_url, allow_redirects=True, stream=True)
+            path = f"./{torrent}"
 
-        with open(path, "wb") as fout:
-            self.logger.info(f"Downloading {torrent}")
-            for chunk in t.iter_content(chunk_size=4096):
-                fout.write(chunk)
-            self.logger.info(f"Downloaded {torrent}")
+            with open(path, "wb") as fout:
+                for chunk in t.iter_content(chunk_size=4096):
+                    fout.write(chunk)
 
-        return (path, fname, save_as)
-
+            return (path, fname, save_as)
+        except Exception as e:
+            raise Exception(f"Error downloading torrent from listing: {e}")
 
     def qb_download_torrent(self, t_path, desired_file, save_filename):
         conn_info = dict(
@@ -128,48 +146,60 @@ class aaclient:
             username=self.qbitt_client["username"],
             password=self.qbitt_client["password"],
         )
-        is_succes = False
+        qb = None
+        is_success = False
+
         try:
+            qb = qbittorrentapi.Client(**conn_info)
             with open(t_path, "rb") as f:
                 torrent_data = f.read()
             config = bdecode(torrent_data)
             info = config["info"]
+
+            # Optional: filter out torrents with too many files
+            """
+            if len(info.get('files', [])) > 1500:
+                self.logger.warning(f"Torrent has too many files, skipping: {t_path}")
+                return False
+            """
+            qb.torrents_add(torrent_files=t_path,
+                            category=self.qbitt_client.get("musicCategory", None),
+                            is_paused=True)
+            time.sleep(1)  
+
             hash_bit = hashlib.sha1(bencode(info)).digest()
             hash = hash_bit.hex()
-                
-            if len(info['files']) > 1500:
-                self.logger.error(f"This torrent has too much stuff, I don't want it. {t_path} not added to qBittorrent") 
-                is_succes = False
-                return is_succes
-                    
-            qb = qbittorrentapi.Client(**conn_info)        
-            qb.torrents_add(torrent_files=t_path, category=self.qbitt_client["musicCategory"], is_paused=True)
-            time.sleep(1) # allow metadata to be downloaded
-            
-            files = qb.torrents_files(hash)    
-            qb.torrents_file_priority(hash, [i for i in range(len(files))], priority=0) # Do not download   
-        
-            idx = qbitt_file_search(files.data, desired_file)   
-            qb.torrents_file_priority(hash, idx, 1) # Normal dl
-            new_path = os.path.dirname(files[idx].name) + "/" +  save_filename
+
+            files = qb.torrents_files(hash)
+
+            qb.torrents_file_priority(hash, list(range(len(files.data))), priority=0)
+
+            idx = qbitt_file_search(files.data, desired_file)
+
+            qb.torrents_file_priority(hash, idx, 1)
+
+            new_path = os.path.dirname(files[idx].name) + "/" + save_filename
             qb.torrents_rename_file(hash, idx, new_path)
-            qb.torrents_start(hash)        
-            self.logger.info(f"{save_filename} added to qBittorrent")
-            is_succes = True       
+
+            qb.torrents_start(hash)
+            self.logger.info(f"'{save_filename}' added to qBittorrent, downloading only the desired file.")
+
+            is_success = True
+
         except Exception as e:
-            self.logger.error(f"Error adding book: {e}. {t_path} removed from qBittorrent")
+            self.logger.error(f"Error adding torrent: {e}\n")
             try:
-                qb.torrents_delete(True, hash)
-            except:
-                pass  # Hash might not exist if creation failed
-            is_succes = False
+                if qb:
+                    qb.torrents_delete(True, hash)
+            except Exception:
+                pass  # Ignore deletion errors
+
         finally:
             if os.path.exists(t_path):
-                os.remove(t_path) 
-            
-        
-        return is_succes
-        
+                os.remove(t_path)
+
+        return is_success
+
     def torrent_from_bookbounty(self, link, save_as, save_path):    
         path, fname, save_as = self.dl_torrent_from_listing(link, save_as)
         
@@ -177,4 +207,3 @@ class aaclient:
             return self.qb_download_torrent(path, fname, save_as)
         else:
             return self.hnr_download_torrent(path, fname, save_as, save_path)
-            

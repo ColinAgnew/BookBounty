@@ -136,7 +136,7 @@ class DataHandler:
                             setattr(self, key, ret[key])
 
         except Exception as e:
-            self.general_logger.error(f"Error Loading Config: {str(e)}")
+            self.general_logger.error(f"Error Loading Config: {str(e)}\n")
 
         # Load defaults if not set by an environmental variable or configuration file.
         for key, value in default_settings.items():
@@ -180,7 +180,7 @@ class DataHandler:
                 )
 
         except Exception as e:
-            self.general_logger.error(f"Error Saving Config: {str(e)}")
+            self.general_logger.error(f"Error Saving Config: {str(e)}\n")
 
     def connect(self):
         socketio.emit("readarr_update", {"status": self.readarr_status, "data": self.readarr_items})
@@ -213,8 +213,8 @@ class DataHandler:
                     time.sleep(600)
 
         except Exception as e:
-            self.general_logger.error(f"Error in Scheduler: {str(e)}")
-            self.general_logger.error(f"Scheduler Stopped")
+            self.general_logger.error(f"Error in Scheduler: {str(e)}\n")
+            self.general_logger.error(f"Scheduler Stopped\n")
 
     def get_wanted_list_from_readarr(self):
         try:
@@ -330,7 +330,7 @@ class DataHandler:
                     thread.start()
 
         except Exception as e:
-            self.general_logger.error(f"Error Adding Items to Download: {str(e)}")
+            self.general_logger.error(f"Error Adding Items to Download: {str(e)}\n")
             socketio.emit("new_toast_msg", {"title": "Error adding new items", "message": str(e)})
 
         finally:
@@ -364,7 +364,7 @@ class DataHandler:
                     self.trigger_readarr_scan()
 
         except Exception as e:
-            self.general_logger.error(f"Error in Master Queue: {str(e)}")
+            self.general_logger.error(f"Error in Master Queue: {str(e)}\n")
             self.libgen_status = "failed"
             socketio.emit("new_toast_msg", {"title": "Error in Master Queue", "message": str(e)})
 
@@ -427,7 +427,7 @@ class DataHandler:
                     break
 
             except Exception as e:
-                self.general_logger.error(f"Error Downloading: {str(e)}")
+                self.general_logger.error(f"Error Downloading: {str(e)}\n")
                 req_item["status"] = "Download Error"
 
         # After trying all finders, if status is still intermediate, set to Not Found
@@ -455,7 +455,7 @@ class DataHandler:
                     self.general_logger.info(f"Found {len(results)} potential matches")
 
             except Exception as e:
-                self.general_logger.error(f"Error with libgen_api search library: {str(e)}")
+                self.general_logger.error(f"Error with libgen_api search library: {str(e)}\n")
                 results = None
 
             for item in results:
@@ -471,7 +471,7 @@ class DataHandler:
                 req_item["status"] = "No Link Found"
 
         except Exception as e:
-            self.general_logger.error(f"Error Searching libgen API: {str(e)}")
+            self.general_logger.error(f"Error Searching libgen API: {str(e)}\n")
             raise Exception(f"Error Searching libgen API: {str(e)}")
 
         finally:
@@ -555,7 +555,7 @@ class DataHandler:
                     continue
 
         except Exception as e:
-            self.general_logger.error(f"Error Searching libgen: {str(e)}")
+            self.general_logger.error(f"Error Searching libgen: {str(e)}\n")
             raise Exception(f"Error Searching libgen: {str(e)}")
 
         finally:
@@ -683,7 +683,7 @@ class DataHandler:
                     continue
  
         except Exception as e:
-            self.general_logger.error(f"Error Searching libgen v2 list: {str(e)}")
+            self.general_logger.error(f"Error Searching libgen v2 list: {str(e)}\n")
             raise Exception(f"Error Searching libgen v2 list: {str(e)}") 
 
         finally:
@@ -696,7 +696,7 @@ class DataHandler:
         found_links = []
 
         try:
-            self.general_logger.warning(f'Searching annas-archive for Book: {req_item["author"]} - {req_item["book_name"]} - Allowed Languages: {",".join(req_item["allowed_languages"])}')
+            self.general_logger.info(f'Searching annas-archive for Book: {req_item["author"]} - {req_item["book_name"]} - Allowed Languages: {",".join(req_item["allowed_languages"])}')
             author = req_item["author"]
             book_name = req_item["book_name"]
 
@@ -718,28 +718,19 @@ class DataHandler:
                     rows = books.select("div.flex")
                     for potential_book in rows:
                         try:
-                            # Title
                             title_elem = potential_book.find("a", {"class": lambda v: v and "text-lg" in v})
                             title_string = title_elem.get_text(strip=True) if title_elem else ""
-                            self.general_logger.info(f'Title String: {title_string} ')
 
-                            # Author (look for user-edit icon link)
                             author_elem = potential_book.find("a", {"href": lambda v: v and v.startswith("/search?q=")})
                             author_string = author_elem.get_text(strip=True) if author_elem else ""
-                            self.general_logger.info(f'Author String: {author_string} ')
 
-                            # Info (language + file type)
                             info_elem = potential_book.find("div", {"class": lambda v: v and "text-gray-800" in v})
                             info_raw = info_elem.get_text(strip=True) if info_elem else "english"
-                            self.general_logger.info(f'Raw Info String: {info_raw} ')
 
                             info_parts = [p.strip() for p in info_raw.split("·")]
 
                             language_part = info_parts[0].split()[0].lower() if info_parts else "english"   
                             filetype_part = info_parts[1].upper() if len(info_parts) > 1 else ""            
-
-                            self.general_logger.info(f'Parsed Language: {language_part} | Parsed Filetype: {filetype_part}')
-
 
 
                             file_type_check = SearchUtils.check_file_type_match(filetype_part, self.preferred_extensions_fiction)
@@ -749,15 +740,12 @@ class DataHandler:
                             if file_type_check and language_check:
                                 author_name_match_ratio = self.compare_author_names(author, author_string)
                                 book_name_match_ratio = fuzz.ratio(title_string, book_search_text)
-                                self.general_logger.info(f'Author Match: {author_name_match_ratio} - Book Match: {book_name_match_ratio} ')
 
                                 if author_name_match_ratio >= self.minimum_match_ratio and book_name_match_ratio >= self.minimum_match_ratio:
                                     href_elem = potential_book.find("a", href=True)
-                                    self.general_logger.info(f'Href Element: {href_elem} ')
 
                                     if href_elem and href_elem["href"].startswith("/md5"):
                                         found_links.append(f"https://annas-archive.org{href_elem['href']}")
-                                        self.general_logger.info(f'Found Link: {found_links[-1]} ')
 
                         except Exception as e:
                             self.general_logger.debug(f"Skipping result due to parse error: {e}")
@@ -779,7 +767,7 @@ class DataHandler:
                 socketio.emit("libgen_update", {"status": self.libgen_status, "data": self.libgen_items, "percent_completion": self.percent_completion})
         
         except Exception as e:
-            self.general_logger.error(f"Error Searching annas-archive: {str(e)}")
+            self.general_logger.error(f"Error Searching annas-archive: {str(e)}\n")
             raise Exception(f"Error Searching annas-archive: {str(e)}")
 
         finally:
@@ -808,7 +796,7 @@ class DataHandler:
                 continue
             except requests.exceptions.RequestException as e:
                 # For other request errors, log it and stop trying
-                self.general_logger.error(f"Request to {url} failed: {e}")
+                self.general_logger.error(f"Request to {url} failed: {e}\n")
                 return None
         # If we exit the loop, the total timeout has been exceeded
         self.general_logger.warning(f"Request to {url} failed after multiple retries within the total timeout.")
@@ -893,7 +881,7 @@ class DataHandler:
             except Exception as e:
                 req_item["status"] = "Link Failed"
                 socketio.emit("libgen_update", {"status": self.libgen_status, "data": self.libgen_items, "percent_completion": self.percent_completion})
-                self.general_logger.error(f"Exception {str(e)} thrown by: {link_url}")
+                self.general_logger.error(f"Exception {str(e)} thrown by: {link_url}\n")
                 return "Link Failed"
 
             if not download_response:
@@ -960,7 +948,7 @@ class DataHandler:
             req_item["status"] = "Download Error"
             socketio.emit("libgen_update", {"status": self.libgen_status, "data": self.libgen_items, "percent_completion": self.percent_completion})
             error_string = f"{download_response.status_code} : {download_response.text}"
-            self.general_logger.error(f"Error downloading: {os.path.basename(file_path)} - {error_string}")
+            self.general_logger.error(f"Error downloading: {os.path.basename(file_path)} - {error_string}\n")
             return error_string
         
         socketio.emit("libgen_update", {"status": self.libgen_status, "data": self.libgen_items, "percent_completion": self.percent_completion})
@@ -971,7 +959,7 @@ class DataHandler:
                 if self.aaclient.torrent_from_bookbounty(link, os.path.basename(file_path), os.path.dirname(file_path)):
                     return "Success"
             except Exception as e:
-                self.general_logger.error(f"Error downloading from Anna: {str(e)}")
+                self.general_logger.error(f"Error downloading from Anna: {str(e)}\n")
                 
         elif download_response and download_response.status_code == 200:
             req_item["status"] = "Downloading"
@@ -997,7 +985,7 @@ class DataHandler:
                 shutil.move(f.name, file_path)
 
             except Exception as e:
-                self.general_logger.error(f"Error downloading to temp file: {str(e)}")
+                self.general_logger.error(f"Error downloading to temp file: {str(e)}\n")
                 if os.path.exists(f.name):
                     os.remove(f.name)
                     self.general_logger.info(f"Removed temp file: {f.name}")
@@ -1026,7 +1014,7 @@ class DataHandler:
                 x["status"] = "Download Stopped"
 
         except Exception as e:
-            self.general_logger.error(f"Error Stopping libgen: {str(e)}")
+            self.general_logger.error(f"Error Stopping libgen: {str(e)}\n")
 
         finally:
             self.libgen_status = "stopped"
@@ -1042,7 +1030,7 @@ class DataHandler:
             self.percent_completion = 0
 
         except Exception as e:
-            self.general_logger.error(f"Error Resetting libgen: {str(e)}")
+            self.general_logger.error(f"Error Resetting libgen: {str(e)}\n")
 
         else:
             self.general_logger.info("Reset Complete")
@@ -1063,7 +1051,7 @@ class DataHandler:
                     self.general_logger.warning("Sleep interval cannot be negative, setting to 0")
                     self.sleep_interval = 0
             except (ValueError, TypeError):
-                self.general_logger.error(f"Invalid sleep_interval: {data.get('sleep_interval')}")
+                self.general_logger.error(f"Invalid sleep_interval: {data.get('sleep_interval')}\n")
                 
             try:
                 minimum_match_ratio = data.get("minimum_match_ratio", "90")
@@ -1072,14 +1060,14 @@ class DataHandler:
                     self.general_logger.warning("Match ratio must be between 0-100, setting to 90")
                     self.minimum_match_ratio = 90
             except (ValueError, TypeError):
-                self.general_logger.error(f"Invalid minimum_match_ratio: {data.get('minimum_match_ratio')}")
+                self.general_logger.error(f"Invalid minimum_match_ratio: {data.get('minimum_match_ratio')}\n")
                 
             self.sync_schedule = self.parse_sync_schedule(data.get("sync_schedule", ""))
 
         except KeyError as e:
-            self.general_logger.error(f"Missing required setting: {str(e)}")
+            self.general_logger.error(f"Missing required setting: {str(e)}\n")
         except Exception as e:
-            self.general_logger.error(f"Failed to update settings: {str(e)}")
+            self.general_logger.error(f"Failed to update settings: {str(e)}\n")
 
     def update_aaclient_settings(self):
         try:
@@ -1109,7 +1097,7 @@ class DataHandler:
                         self.aaclient = aaclient(self.general_logger, download_client)
                 
         except Exception as e:
-            self.general_logger.error(f"Failed to update aaclient_settings: {str(e)}")
+            self.general_logger.error(f"Failed to update aaclient_settings: {str(e)}\n")
             self.aaclient = None
 
    
@@ -1123,8 +1111,8 @@ class DataHandler:
                 ret = cleaned_sync_schedule
 
         except Exception as e:
-            self.general_logger.error(f"Time not in correct format: {str(e)}")
-            self.general_logger.error(f"Schedule Set to {ret}")
+            self.general_logger.error(f"Time not in correct format: {str(e)}\n")
+            self.general_logger.error(f"Schedule Set to {ret}\n")
 
         finally:
             return ret
