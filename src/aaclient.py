@@ -70,13 +70,17 @@ def get_torrent_from_listing(url, save_as, guess_extension, logger):
         if not filename:
             raise ValueError("Could not extract filename from text")
        
-        extension_element = tree.xpath(book_xpaths["extension"])[0].strip()
-        extension = [p.strip() for p in extension_element.split('·')][1]
+
 
         if guess_extension:
+            extension = os.path.splitext(filename)[1]
             if extension:
+                save_as += extension
+            else:        
+                extension_element = tree.xpath(book_xpaths["extension"])[0].strip()
+                extension = [p.strip() for p in extension_element.split('·')][1]
                 save_as += f".{extension.lower()}"
-        
+
         aa = url.split("/")
         base_url = f"{aa[0]}//{aa[2]}"
         
