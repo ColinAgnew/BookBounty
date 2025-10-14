@@ -13,7 +13,8 @@ book_xpaths = {
     "collection_div": "//div[contains(@class, 'text-sm') and contains(@class, 'text-gray-500')]",
     "torrent_url": "//div[contains(@class, 'text-sm')]/a[contains(@href, '.torrent')]/@href",
     "torrent_name": "//div[contains(@class, 'text-sm')]/a[contains(@href, '.torrent')]/text()",
-    "filename_within_torrent": "//div[contains(@class, 'text-sm')]/text()[contains(., '→') and contains(., 'file')]"
+    "filename_within_torrent": "//div[contains(@class, 'text-sm')]/text()[contains(., '→') and contains(., 'file')]",
+    "extension": "/html/body/main/div/div[1]/div[3]/text()"
 }
 
 replace_chars = str.maketrans(dict.fromkeys(''.join([" /"]), '.') | dict.fromkeys(''.join([":;"]), None))
@@ -68,11 +69,13 @@ def get_torrent_from_listing(url, save_as, guess_extension, logger):
         filename = tree.xpath(book_xpaths["filename_within_torrent"])[0].split('“', 1)[1][:-1]
         if not filename:
             raise ValueError("Could not extract filename from text")
-        
+       
+        extension_element = tree.xpath(book_xpaths["extension"])[0].strip()
+        extension = [p.strip() for p in extension_element.split('·')][1]
+
         if guess_extension:
-            extension = os.path.splitext(filename)[1]
             if extension:
-                save_as += extension
+                save_as += f".{extension.lower()}"
         
         aa = url.split("/")
         base_url = f"{aa[0]}//{aa[2]}"
